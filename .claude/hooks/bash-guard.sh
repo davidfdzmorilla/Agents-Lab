@@ -16,6 +16,26 @@ cmd="$(json_get '.tool_input.command')"
 # Normaliza espacios para los patrones.
 flat="$(printf '%s' "$cmd" | tr '\n' ' ' | tr -s ' ')"
 
+# Se descartan los cuerpos de heredoc y el texto entre comillas: un ">=22.12" dentro de un
+# mensaje de commit o de un echo no es una redirección.
+sanitized="$(printf '%s' "$cmd" | python3 -I -c '
+import re,sys
+src=sys.stdin.read()
+out=[]; lines=src.split("\n"); i=0
+while i<len(lines):
+  ln=lines[i]
+  m=re.search(r"<<-?\s*([\x27\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", ln)
+  if m:
+      tag=m.group(2); out.append(ln[:m.start()]+" "+ln[m.end():]); i+=1
+      while i<len(lines) and lines[i].strip()!=tag: i+=1
+      i+=1; continue
+  out.append(ln); i+=1
+s=" ".join(out)
+s=re.sub(r"\x27[^\x27]*\x27"," ",s)
+s=re.sub(r"\"(?:[^\"\\\\]|\\\\.)*\""," ",s)
+sys.stdout.write(s)
+' 2>/dev/null || printf '%s' "$flat")"
+
 # ---- git destructivo / remoto --------------------------------------------------------
 if printf '%s' "$flat" | grep -Eq '(^|[;&| ])git[[:space:]]+(push|merge|rebase|cherry-pick|revert)([[:space:]]|$)'; then
   block "push/merge/rebase/cherry-pick/revert los hace el humano fuera de Claude Code (ADR-006)"
@@ -48,7 +68,7 @@ fi
 # Se analiza cada segmento del comando (separado por ; && || |) por separado.
 deps_re='^[[:space:]]*(pnpm|npm|yarn|bun)([[:space:]]+(-[^[:space:]]*|--filter[[:space:]]+[^[:space:]]+))*[[:space:]]+(add|i|install)([[:space:]]|$)'
 # División en segmentos con sustitución de bash (portable: BSD sed no admite \n en el reemplazo).
-segs="$flat"; segs="${segs//&&/$'\n'}"; segs="${segs//||/$'\n'}"; segs="${segs//;/$'\n'}"; segs="${segs//|/$'\n'}"
+segs="$sanitized"; segs="${segs//&&/$'\n'}"; segs="${segs//||/$'\n'}"; segs="${segs//;/$'\n'}"; segs="${segs//|/$'\n'}"
 printf '%s\n' "$segs" | while IFS= read -r seg; do
   printf '%s' "$seg" | grep -Eq "$deps_re" || continue
   deps_allowed="$(scope_get deps_allowed)"
@@ -70,25 +90,6 @@ done || exit 2
 allow_scope="$(scope_get allow)"
 if [ -n "$allow_scope" ] && [ "$allow_scope" != "*" ]; then
   curdir="$ROOT"
-  # Se descartan los cuerpos de heredoc y el texto entre comillas: un ">=22.12" dentro de un
-  # mensaje de commit o de un echo no es una redirección.
-  sanitized="$(printf '%s' "$cmd" | python3 -I -c '
-import re,sys
-src=sys.stdin.read()
-out=[]; lines=src.split("\n"); i=0
-while i<len(lines):
-    ln=lines[i]
-    m=re.search(r"<<-?\s*([\x27\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", ln)
-    if m:
-        tag=m.group(2); out.append(ln[:m.start()]+" "+ln[m.end():]); i+=1
-        while i<len(lines) and lines[i].strip()!=tag: i+=1
-        i+=1; continue
-    out.append(ln); i+=1
-s=" ".join(out)
-s=re.sub(r"\x27[^\x27]*\x27"," ",s)
-s=re.sub(r"\"(?:[^\"\\\\]|\\\\.)*\""," ",s)
-sys.stdout.write(s)
-' 2>/dev/null || printf '%s' "$flat")"
   segs2="$sanitized"; segs2="${segs2//&&/$'\n'}"; segs2="${segs2//||/$'\n'}"; segs2="${segs2//;/$'\n'}"; segs2="${segs2//|/$'\n'}"
   while IFS= read -r seg; do
     seg="${seg#"${seg%%[![:space:]]*}"}"
@@ -110,7 +111,11 @@ sys.stdout.write(s)
     esac
     for tgt in $targets; do
       tgt="${tgt%\"}"; tgt="${tgt#\"}"; tgt="${tgt%\'}"; tgt="${tgt#\'}"
-      case "$tgt" in /dev/*|'&'*|[0-9]) continue ;; esac
+      tgt="${tgt%%)*}"; tgt="${tgt%%\}*}"
+      case "$tgt" in
+        /dev/*|'&'*|[0-9]|'') continue ;;                 # descriptores y nulos
+        *'$'*|*'('*|*'{'*|*'`'*|*'<'*|*'>'*) continue ;;  # variables/expansiones: irresolubles, no se bloquean
+      esac
       case "$tgt" in
         /*) abs="$tgt" ;;
         ~*) abs="${tgt/#\~/$HOME}" ;;
