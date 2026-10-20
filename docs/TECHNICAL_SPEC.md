@@ -331,9 +331,9 @@ Decisiones que la especificación **no** fija. Los agentes de desarrollo no las 
 | OD-004 | Plataforma de CI (GitLab CI vs GitHub Actions) | humano | M0 (TASK-006) |
 | OD-005 | Modelo local por defecto para Ollama en `compose.yaml` (tamaño vs calidad) | humano | M2 |
 | OD-006 | Modelo de persistencia de artefactos (tabla `artifacts` vs columna JSON en `tasks`) | architect → humano | M4 |
-| OD-007 | ~~Ejecución de TypeScript en runtime (`apps/worker` y consumo de paquetes que exportan `.ts`): `tsx`, bundle o type stripping de Node~~ **DECIDIDA (2026-10-20): tsx — ADR-009 (Proposed)**: `tsx 4.23.15` exacta en `dependencies` de `apps/worker`; dev `tsx watch src/index.ts`, Docker `tsx src/index.ts`; `apps/web` lo resuelve Next; sin build del worker en v1 | architect → humano | M0, antes de TASK-003 (bloquea TASK-003 y TASK-008; no TASK-001) |
+| OD-007 | ~~Ejecución de TypeScript en runtime (`apps/worker` y consumo de paquetes que exportan `.ts`): `tsx`, bundle o type stripping de Node~~ **DECIDIDA (2026-10-20): tsx — ADR-009 (Accepted)**: `tsx 4.23.15` exacta en `dependencies` de `apps/worker`; dev `tsx watch src/index.ts`, Docker `tsx src/index.ts`; `apps/web` lo resuelve Next; sin build del worker en v1 | architect → humano | M0, antes de TASK-003 (bloquea TASK-003 y TASK-008; no TASK-001) |
 
-### OD-007 — Propuesta (~~`PROPUESTA — pendiente de decisión humana`~~ **DECIDIDA 2026-10-20 → ADR-009, Proposed**)
+### OD-007 — Propuesta (~~`PROPUESTA — pendiente de decisión humana`~~ **DECIDIDA 2026-10-20 → ADR-009, Accepted**)
 
 > **Decisión humana (2026-10-20):** opción (a) `tsx`, pero invocada como CLI `tsx src/index.ts` (no `node --import tsx` como recomendaba la propuesta) y `tsx watch src/index.ts` en dev. Se descartan (b) y (c). Detalle, consecuencias (proceso padre de `tsx` y reenvío de `SIGTERM`) y verificación en [ADR-009](adr/ADR-009-ejecucion-typescript-runtime.md). El texto de abajo se conserva como registro de la propuesta.
 

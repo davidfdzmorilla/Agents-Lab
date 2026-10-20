@@ -47,8 +47,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-003 · Docker Compose: web, worker, db (+ perfil local con ollama)
 - **Estado**: READY · **Owner**: devops · **Depende de**: TASK-001, OD-007 (decidida: ADR-009)
-- **Scope**: `compose.yaml`, `compose.override.example.yaml`, `docker/web.Dockerfile`, `docker/worker.Dockerfile`, `docker/postgres/init.sql`, `.env.example`, `.dockerignore`, `Makefile`
-- **Dependencias autorizadas**: `tsx` 4.23.15 exacta, en `dependencies` de `apps/worker` (ADR-009). ⚠️ El scope no incluye aún `apps/worker/package.json` ni `pnpm-lock.yaml`: pendiente de decisión humana antes de `/execute-task`.
+- **Scope**: `compose.yaml`, `compose.override.example.yaml`, `docker/web.Dockerfile`, `docker/worker.Dockerfile`, `docker/postgres/init.sql`, `.env.example`, `.dockerignore`, `Makefile`, `apps/worker/package.json`, `pnpm-lock.yaml`
+- **Dependencias autorizadas**: `tsx` 4.23.15 exacta, declarada en `dependencies` de `apps/worker/package.json` por esta tarea (ADR-009).
 - **DoD**:
   - `docker compose up --build` levanta `db`, `web`, `worker`; `db` solo en red interna; `web` en `3000`.
   - `docker compose --profile local up` añade `ollama` sin puerto en host.
@@ -58,6 +58,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `make up`, `make down`, `make logs`, `make test` funcionan.
   - `TURBO_TELEMETRY_DISABLED=1` en `Makefile` y en ambos Dockerfiles.
   - Target `make validate` con el comando de validación en Docker `node:22` y store de pnpm en volumen con nombre (TD-008).
+  - `tsx` 4.23.15 declarado en `dependencies` de `apps/worker`; `docker/worker.Dockerfile` ejecuta `tsx src/index.ts` (ADR-009).
+  - Apagado limpio: `docker compose stop worker` hace que el contenedor termine en < `SHUTDOWN_GRACE_MS` con código 0 (`stop_grace_period` > `SHUTDOWN_GRACE_MS`).
 
 ### TASK-004 · packages/core: esquemas Zod, errores tipados, env
 - **Estado**: READY · **Owner**: core-dev · **Depende de**: TASK-001
@@ -111,11 +113,12 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ### TASK-008 · apps/worker: bucle de reclamación vacío con heartbeat y apagado limpio
 - **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005
 - **Scope**: `apps/worker/**`
-- **Dependencias autorizadas**: `tsx` 4.23.15 exacta, en `dependencies` de `apps/worker` (ADR-009); scripts `dev` = `tsx watch src/index.ts`, `start` = `tsx src/index.ts`.
+- **Dependencias autorizadas**: ninguna nueva; usa `tsx` ya declarado por TASK-003 (ADR-009).
 - **DoD**:
+  - Scripts de `apps/worker`: `dev` = `tsx watch src/index.ts`, `start` = `tsx src/index.ts` (ADR-009).
   - Bucle `claimNext` → ejecuta un `RunExecutor` inyectable (en M0: no-op que marca `completed`) → `finalize`.
   - Heartbeat cada 15 s mientras hay run activo.
-  - `SIGTERM` espera al run actual hasta `SHUTDOWN_GRACE_MS` y sale con código 0.
+  - Con `SIGTERM` bajo `tsx`: el worker deja de reclamar, espera al run en curso hasta `SHUTDOWN_GRACE_MS`, lo deja en estado coherente y sale con código 0. Test en proceso hijo lanzado con `tsx`. Si falla bajo el CLI de `tsx`, fallback autorizado `node --import tsx src/index.ts` (ADR-009), documentado en el informe.
   - Test: crear run `queued` en DB, arrancar worker en proceso hijo, verificar `completed` y heartbeat actualizado.
   - Al arrancar, el worker comprueba que existe el esquema `langgraph`; si no, sale con código ≠ 0 y un mensaje claro que indica ejecutar `pnpm db:migrate` (ADR-002). Test del caso de fallo.
 
@@ -233,7 +236,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-023 · Checkpointer PostgreSQL + `run_checkpoints`
 - **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-013, TASK-002 · **Scope**: `packages/persistence/src/checkpointer/**`, `packages/orchestrator/src/graph/*.ts`
-- **DoD**: `thread_id = runId`; relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio; test de que `setup()` es idempotente (dos ejecuciones seguidas) y `put`/`getTuple` contra PostgreSQL 16 en el esquema `langgraph`.
+- **DoD**: `thread_id = runId`; relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio; test de que `setup()` es idempotente (dos ejecuciones seguidas) y `put`/`getTuple` contra PostgreSQL 16 en el esquema `langgraph`; con `SIGTERM`, el run en curso guarda checkpoint antes de que el worker salga (ADR-009).
 
 ### TASK-024 · `LISTEN/NOTIFY` + SSE real con `Last-Event-ID`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-023 · **Scope**: `packages/persistence/src/notify/**`, `apps/web/app/api/runs/[id]/events/**`, `apps/web/components/run-timeline/**`
@@ -333,3 +336,4 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-20 | TASK-001 → DONE (tester PASS, reviewer APPROVED; ciclos de corrección 2). Informe en docs/reports/TASK-001.md. TASK-004 → READY. TASK-040 creada. Deuda TD-006…TD-010. |
 | 2026-10-20 | TASK-001 commit 4a12555 |
 | 2026-10-20 | OD-007 decidida por el humano: tsx (ADR-009 Proposed). TASK-003 → READY (scope pendiente: apps/worker/package.json, pnpm-lock.yaml); TASK-008 sin OD-007 (sigue BLOCKED por TASK-005). `tsx` 4.23.15 en deps autorizadas de ambas. |
+| 2026-10-20 | ADR-009 Accepted (decisión humana) con fallback `node --import tsx`. TASK-003: scope + `apps/worker/package.json`, `pnpm-lock.yaml`; declara `tsx`; DoD de apagado limpio del contenedor. TASK-008: usa `tsx` (no lo declara); DoD de SIGTERM corregido. TASK-023: checkpoint antes de salir con SIGTERM. |

@@ -201,6 +201,7 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 - Bucle: `claimNext()` → `runGraph(run)` → `heartbeat` cada 15 s en paralelo → `finalize`.
 - Un único run a la vez por proceso worker en v1 (`WORKER_CONCURRENCY=1`). Elevarlo es config, no código.
 - Apagado limpio: `SIGTERM` → deja de reclamar, espera al run actual hasta `SHUTDOWN_GRACE_MS` (30 s), guarda checkpoint, sale.
+- Arranque: `tsx watch src/index.ts` en desarrollo y `tsx src/index.ts` en Docker (ADR-009); fallback `node --import tsx` si el apagado por `SIGTERM` falla.
 
 ## 9. Versiones y herramientas
 
@@ -224,6 +225,7 @@ Dependencias de runtime fijadas por OD-001 (TASK-002, ADR-002, verificadas con `
 | `pg` | `8.23.1` | `persistence` | Driver PostgreSQL único: Drizzle, `PostgresSaver` (solo admite `pg`, peer `^8.12.0`) y `LISTEN/NOTIFY` |
 | `@types/pg` | `8.23.1` | `persistence` (dev) | Tipos de `pg` |
 | `next` | `16.4.2` | `web` | Última estable; Node ≥20.9, TS ≥5.1; Route Handlers con `ReadableStream` para SSE |
+| `tsx` | `4.23.15` | `apps/worker` (`dependencies`) | ADR-009 (OD-007): ejecuta el worker sin build en dev y en Docker |
 
 Compatibilidad: peers verificados con `npm view` y release coordinado langgraphjs #2961 (2026-10-12); fuentes en ADR-002. `@langchain/langgraph-checkpoint` y `@langchain/core` resuelven a una sola versión exacta (`1.2.0` y `1.2.18`) en `persistence` y `orchestrator`: TASK-013 elige el mecanismo (declaración exacta en ambos `package.json` o `pnpm.overrides` en la raíz) y TASK-023 lo comprueba con `pnpm why`. `zod` se fija en TASK-004 y `react`/`react-dom`/`tailwindcss` en TASK-007 (no decididas aún). Subir cualquiera de estas versiones es una tarea propia que vuelve a verificar la compatibilidad.
 
