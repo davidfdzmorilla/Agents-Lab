@@ -64,15 +64,22 @@ done || exit 2
 
 # ---- escrituras por shell dentro de un scope activo ----------------------------------
 # scope-guard solo ve Edit/Write. Con una tarea activa, las escrituras por shell (sed -i, tee, cp,
-# mv, rm, touch, truncate y redirecciones > >>) solo pueden apuntar a rutas del scope.
-# Sin tarea activa (allow = ["*"]) no se aplica.
+# mv, rm, touch, truncate, mkdir y redirecciones > >>) dentro del repositorio solo pueden apuntar
+# a rutas del scope. Fuera del repositorio (temporales, cachés) no se aplica. Sin tarea activa
+# (allow = ["*"]) tampoco. Se sigue el `cd` entre segmentos para resolver rutas relativas.
 allow_scope="$(scope_get allow)"
 if [ -n "$allow_scope" ] && [ "$allow_scope" != "*" ]; then
-  targets=""
+  curdir="$ROOT"
   segs2="$flat"; segs2="${segs2//&&/$'\n'}"; segs2="${segs2//||/$'\n'}"; segs2="${segs2//;/$'\n'}"; segs2="${segs2//|/$'\n'}"
   while IFS= read -r seg; do
     seg="${seg#"${seg%%[![:space:]]*}"}"
-    # redirecciones: destino tras > o >>
+    targets=""
+    case "$seg" in
+      cd\ *) d="$(printf '%s' "$seg" | tr ' ' '\n' | sed -n 2p)"; d="${d%\"}"; d="${d#\"}"; d="${d%\'}"; d="${d#\'}"
+             case "$d" in /*) curdir="$d" ;; ~*) curdir="${d/#\~/$HOME}" ;; *) curdir="$curdir/$d" ;; esac
+             curdir="$(python3 -I -c 'import os,sys;print(os.path.normpath(sys.argv[1]))' "$curdir" 2>/dev/null || printf '%s' "$curdir")"
+             continue ;;
+    esac
     for tgt in $(printf '%s' "$seg" | grep -oE '[0-9]*>>?[[:space:]]*[^[:space:];&|]+' | sed -E 's/^[0-9]*>>?[[:space:]]*//'); do
       targets="$targets $tgt"
     done
@@ -82,28 +89,27 @@ if [ -n "$allow_scope" ] && [ "$allow_scope" != "*" ]; then
       cp\ *|mv\ *) targets="$targets $(printf '%s' "$seg" | tr ' ' '\n' | grep -v '^-' | tail -n 1)" ;;
       rm\ *|touch\ *|truncate\ *|mkdir\ *) targets="$targets $(printf '%s' "$seg" | tr ' ' '\n' | tail -n +2 | grep -v '^-')" ;;
     esac
+    for tgt in $targets; do
+      tgt="${tgt%\"}"; tgt="${tgt#\"}"; tgt="${tgt%\'}"; tgt="${tgt#\'}"
+      case "$tgt" in /dev/*|'&'*|[0-9]) continue ;; esac
+      case "$tgt" in
+        /*) abs="$tgt" ;;
+        ~*) abs="${tgt/#\~/$HOME}" ;;
+        *) abs="$curdir/$tgt" ;;
+      esac
+      abs="$(python3 -I -c 'import os,sys;print(os.path.normpath(sys.argv[1]))' "$abs" 2>/dev/null || printf '%s' "$abs")"
+      case "$abs" in
+        "$ROOT"/*) rel="${abs#"$ROOT"/}" ;;
+        *) continue ;;   # fuera del repositorio: no es asunto del scope
+      esac
+      case "$rel" in
+        .claude/task-scope.json|node_modules|node_modules/*|*/node_modules/*|.turbo/*|*/.turbo/*|dist/*|*/dist/*|.next/*|*/.next/*|coverage/*|*/coverage/*|.pnpm-store|.pnpm-store/*) continue ;;
+      esac
+      any_match "$rel" <<< "$allow_scope" || block "escritura por shell en '$rel' fuera del scope de la tarea. Usa Edit/Write dentro del scope o repórtalo."
+    done
   done <<EOF2
 $segs2
 EOF2
-  for tgt in $targets; do
-    tgt="${tgt%\"}"; tgt="${tgt#\"}"; tgt="${tgt%\'}"; tgt="${tgt#\'}"
-    case "$tgt" in
-      /dev/null|/dev/stderr|/dev/stdout|/tmp/*|/private/tmp/*|/var/folders/*|"${TMPDIR:-/nonexistent}"*|'&'*|[0-9]) continue ;;
-    esac
-    case "$tgt" in
-      /*) rel="$tgt" ;;
-      *) rel="$ROOT/$tgt" ;;
-    esac
-    rel="$(python3 -I -c 'import os,sys;print(os.path.normpath(sys.argv[1]))' "$rel" 2>/dev/null || printf '%s' "$rel")"
-    case "$rel" in
-      "$ROOT"/*) rel="${rel#"$ROOT"/}" ;;
-      *) block "escritura fuera del repositorio: $tgt" ;;
-    esac
-    case "$rel" in
-      .claude/task-scope.json|node_modules/*|*/node_modules/*|.turbo/*|*/.turbo/*|dist/*|*/dist/*|.next/*|*/.next/*|coverage/*|*/coverage/*|.pnpm-store/*|.pnpm-store) continue ;;
-    esac
-    any_match "$rel" <<< "$allow_scope" || block "escritura por shell en '$rel' fuera del scope de la tarea. Usa Edit/Write dentro del scope o repórtalo."
-  done
 fi
 
 # ---- secretos -----------------------------------------------------------------------
