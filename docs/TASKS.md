@@ -352,3 +352,4 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-20 | TASK-004 (ciclo 1): tester PASS (156 tests, 100 %, mutación del inventario OK); reviewer APPROVED; security APPROVED (4 LOW). Pendiente: OD sobre defaults de `.env.example` y aprobación de deuda antes de `/close-task`. |
 | 2026-10-20 | TASK-004 → DONE (tester PASS, reviewer APPROVED, security APPROVED; 1 ciclo de corrección). Informe en docs/reports/TASK-004.md. TASK-010 y TASK-012 → READY. Deuda TD-011, TD-012. OD-018 resuelta. |
 | 2026-10-20 | Regla pendiente para .claude/skills/monorepo-conventions/SKILL.md (TD-011): el objeto de loadEnv() no se pasa entero a ningún logger ni se serializa; se leen campos sueltos. No aplicada: role-guard impide a docs-keeper editar .claude/skills/**; la añade el humano. |
+| 2026-10-21 | TASK-004 commit 2a360ff |
