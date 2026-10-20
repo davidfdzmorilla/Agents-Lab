@@ -12,7 +12,8 @@ role="${1:-}"
 
 rel="$(target_path)"
 [ -n "$rel" ] || block "no se pudo determinar el fichero objetivo"
-case "$rel" in OUTSIDE:*) block "edición fuera del repositorio" ;; esac
+# Fuera del repositorio (scratchpad, temporales) el rol no aplica: se permite.
+case "$rel" in OUTSIDE:*) exit 0 ;; esac
 
 # Patrones permitidos por rol (uno por línea). '*' = todo. Vacío = nada.
 case "$role" in

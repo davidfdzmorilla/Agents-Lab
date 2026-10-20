@@ -11,9 +11,8 @@ rel="$(target_path)"
 # Fail-closed: una edición sin ruta legible no se permite.
 [ -n "$rel" ] || block "no se pudo determinar el fichero objetivo"
 
-case "$rel" in
-  OUTSIDE:*) block "edición fuera del repositorio: ${rel#OUTSIDE:}" ;;
-esac
+# Fuera del repositorio (scratchpad, temporales) el scope no aplica: se permite.
+case "$rel" in OUTSIDE:*) exit 0 ;; esac
 
 # Ficheros que nunca se editan desde Claude Code, con scope o sin él.
 case "$rel" in
