@@ -9,7 +9,7 @@ Este documento describe **cómo está construido** AgentLab. `TECHNICAL_SPEC.md`
 
 ## 1. Vista de procesos
 
-Tres procesos en Docker Compose + dos opcionales:
+Tres procesos en Docker Compose + dos opcionales + dos de un solo uso (`migrate`, `test`):
 
 | Servicio | Imagen / base | Puerto expuesto | Responsabilidad |
 |---|---|---|---|
@@ -18,6 +18,8 @@ Tres procesos en Docker Compose + dos opcionales:
 | `db` | PostgreSQL 16 | ninguno (solo red interna; `5432` en host opcional vía `compose.override`) | Fuente de verdad. |
 | `ollama` (opcional, perfil `local`) | ollama/ollama | ninguno | Inferencia local. |
 | `otel-collector` (opcional, perfil `observability`, M3) | otel/opentelemetry-collector | ninguno | Recepción de trazas OTel. |
+| `migrate` (one-shot, TASK-005) | Node 22 (stage propio `migrate` de `docker/worker.Dockerfile`, OD-026) | ninguno | `pnpm db:migrate`: migraciones de Drizzle y `setup()` del checkpointer, serializadas con `pg_advisory_xact_lock`; sale. Solo red `backend` y solo recibe `DATABASE_URL`. `web` y `worker` arrancan cuando termina con éxito. Imagen con las `devDependencies` de `persistence` (`tsx` es dev, ADR-010), instalada con `--ignore-scripts` (`fetch` e `install`); **no se reutiliza para `worker` ni `web`**: ningún otro servicio la usa como `target` y ningún stage parte de ella (`FROM`/`COPY --from`). |
+| `test` (one-shot, perfil `test`, TASK-005) | Node 22 (stage `base` de `docker/worker.Dockerfile`) | ninguno | Fase 2 de `make test`/`make validate` (OD-019): instala sin red y corre los tests contra `agentlab_test`. Solo red `backend` (sin internet). Único servicio que recibe `DATABASE_URL_TEST`. `make test` deja `db` en marcha; se para con `make down`. |
 
 Reglas:
 - `web` y `worker` comparten `packages/*` pero **no** comparten proceso ni memoria.
@@ -132,7 +134,17 @@ class BudgetGuard {
 
 ### 3.4 Eventos (`core`)
 
-Discriminated union `RunEvent` con `type`, `runId`, `seq`, `ts`, `payload`. `seq` lo asigna `EventsRepository.append` con `SELECT COALESCE(MAX(seq),0)+1 … FOR UPDATE` por run. Un evento se persiste **antes** de notificarse (`NOTIFY`). Al reconectar, el cliente envía `Last-Event-ID` y el handler devuelve todo lo que tenga `seq > id`.
+Discriminated union `RunEvent` con `type`, `runId`, `seq`, `ts`, `payload`. `seq` lo asigna `EventsRepository.append` en una transacción que bloquea la fila del run y calcula `MAX+1` (OD-022). SQL probado en PostgreSQL 16.15 (plan de TASK-005, V2: 3 sesiones concurrentes × 200 inserciones, `seq` 1..600 contiguo y sin errores):
+
+```sql
+BEGIN;
+SELECT 1 FROM runs WHERE id = $1 FOR UPDATE;
+INSERT INTO run_events (run_id, seq)
+  SELECT $1, COALESCE(MAX(seq), 0) + 1 FROM run_events WHERE run_id = $1;
+COMMIT;
+```
+
+El repositorio añade al mismo `INSERT … SELECT` las columnas `type` y `payload` y un `RETURNING`; no cambian el mecanismo. `FOR UPDATE` no se admite junto a funciones de agregado (`SELECT COALESCE(MAX(seq),0)+1 … FOR UPDATE` falla en PostgreSQL 16), por eso se bloquea la fila de `runs`. `unique (run_id, seq)` queda como red de seguridad. Un evento se persiste **antes** de notificarse (`NOTIFY`). Al reconectar, el cliente envía `Last-Event-ID` y el handler devuelve todo lo que tenga `seq > id`.
 
 ## 4. El grafo (LangGraph.js)
 
@@ -172,6 +184,8 @@ Columnas obligatorias en todas las tablas gestionadas por Drizzle (esquema `publ
 
 Excepción: las tablas del checkpointer en el esquema `langgraph` (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`) no siguen esta regla ni figuran en la tabla siguiente: las crea y migra `setup()` de `PostgresSaver`, no Drizzle (ADR-002).
 
+Excepción (OD-024): la tabla de control de migraciones de Drizzle vive en el esquema `drizzle` (`drizzle.__drizzle_migrations`, la que crea por defecto el migrador de `drizzle-orm`). Tampoco sigue la regla de columnas ni figura en la tabla siguiente. `drizzle.config.ts` declara `schemaFilter: ["public"]`: Drizzle nunca genera cambios sobre `langgraph` ni `drizzle`.
+
 | Tabla | Columnas clave | Notas |
 |---|---|---|
 | `projects` | `name`, `budget_profile jsonb` | |
@@ -181,10 +195,18 @@ Excepción: las tablas del checkpointer en el esquema `langgraph` (`checkpoints`
 | `runs` | `project_id`, `team_id`, `request jsonb`, `status`, `budget jsonb`, `budget_used jsonb`, `result jsonb`, `error jsonb`, `cancel_requested bool`, `worker_id`, `worker_heartbeat_at`, `started_at`, `finished_at` | índice `(status, created_at)` |
 | `tasks` | `run_id`, `parent_task_id`, `title`, `assigned_role`, `depends_on uuid[]`, `status`, `input jsonb`, `output jsonb` | |
 | `agent_invocations` | `run_id`, `task_id`, `agent_definition_id`, `step`, `provider_type`, `model_id`, `status`, `attempt`, `duration_ms`, `input_tokens`, `output_tokens`, `cost_reported`, `validation jsonb`, `error jsonb` | `input_tokens`/`cost` nullable |
-| `tool_invocations` | `run_id`, `agent_invocation_id`, `tool_name`, `input jsonb`, `output jsonb`, `status`, `duration_ms`, `error jsonb` | |
+| `tool_invocations` | `run_id`, `agent_invocation_id`, `tool_name`, `input jsonb`, `output jsonb`, `status`, `duration_ms`, `error jsonb` | Nace en TASK-030 con su migración (OD-028); no está en `0000_init` |
 | `run_events` | `run_id`, `seq int`, `type`, `payload jsonb`, `ts` | `unique (run_id, seq)` |
-| `run_checkpoints` | `run_id`, `checkpoint_id`, `step`, | FK lógico al checkpointer |
-| `evaluations` | `run_id`, `criteria jsonb`, `scores jsonb`, `verdict`, `evaluator_role` | |
+| `run_checkpoints` | `run_id`, `checkpoint_id`, `step`, | FK lógico al checkpointer. Nace en TASK-023 con su migración (OD-028); no está en `0000_init` |
+| `evaluations` | `run_id`, `criteria jsonb`, `scores jsonb`, `verdict`, `evaluator_role` | Nace en TASK-036 con su migración (OD-028); no está en `0000_init` |
+
+La tabla anterior es el modelo objetivo. La migración `0000_init` (TASK-005, OD-021, OD-028) crea **8 tablas** —`projects`, `provider_configs`, `agent_definitions`, `team_definitions`, `runs`, `tasks`, `agent_invocations`, `run_events`— y solo lo que usa M1, sin columnas "por si acaso"; cada tabla o columna posterior entra con la migración de la tarea que la usa:
+- **Común:** `id uuid PK DEFAULT gen_random_uuid()`, `created_at`/`updated_at timestamptz NOT NULL DEFAULT now()`; `updated_at` lo fija el repositorio en cada `UPDATE` (sin triggers). Nombres de columna explícitos en snake_case. FK físicas en los `*_id` escalares (ninguna en arrays). `jsonb` tipado con los tipos de `core`.
+- **Estados y roles:** `text` con `CHECK` generado desde `RUN_STATUSES`, `AGENT_ROLES` y `RUN_EVENT_TYPES` de `core` (no `pgEnum`: PostgreSQL no permite quitar valores de un enum). Estados sin valores definidos en `core` (`tasks.status`, `agent_invocations.status`): `text` sin `CHECK`.
+- **Borrado:** `runs → projects` y `runs → team_definitions` con `RESTRICT` (el historial no se borra en cascada, ADR-007); las tablas hijas de un run, con `CASCADE`.
+- **Índices:** solo los que consulta M1: `runs (status, created_at)`, `unique (run_id, seq)` (sirve también a `listSince`) y los de `project_id` en `provider_configs` y `agent_definitions` (listados por proyecto).
+- **Fuera de `0000_init`:** `team_definitions.coordination` (M4, TASK-034; `TeamDefinition` de `core` no la tiene) y las tablas `tool_invocations` (TASK-030), `run_checkpoints` (TASK-023) y `evaluations` (TASK-036), cada una con su migración (OD-028): "lo que M1 no use, fuera" manda sobre el número de tablas.
+- **`provider_configs.api_key_env`:** `text NULL` (Ollama no tiene clave), **sin `CHECK`** (OD-023): un valor rechazado no debe llegar a la base ni a sus logs. Lo valida el repositorio antes del `INSERT` con la regla de OD-017 que exporta `core` y longitud ≤ 40; si no la cumple, lanza `InvalidApiKeyEnvError` de `core` (`code: "API_KEY_ENV_INVALID"`, OD-027), con mensaje fijo que no incluye el valor. Ningún otro código escribe en `provider_configs`.
 
 Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`): se pasan por `redactSecrets()` antes de guardar. El test `persistence/redaction.test.ts` falla si una cadena que coincida con cualquier `api_key_env` del entorno llega a la base de datos.
 
@@ -225,7 +247,7 @@ Dependencias fijadas por OD-001 (TASK-002, ADR-002) y por TASK-004 (OD-009), ver
 | `pg` | `8.23.1` | `persistence` | Driver PostgreSQL único: Drizzle, `PostgresSaver` (solo admite `pg`, peer `^8.12.0`) y `LISTEN/NOTIFY` |
 | `@types/pg` | `8.23.1` | `persistence` (dev) | Tipos de `pg` |
 | `next` | `16.4.2` | `web` | Última estable; Node ≥20.9, TS ≥5.1; Route Handlers con `ReadableStream` para SSE |
-| `tsx` | `4.23.15` | `apps/worker` (`dependencies`) | ADR-009 (OD-007): ejecuta el worker sin build en dev y en Docker |
+| `tsx` | `4.23.15` | `apps/worker` (`dependencies`); `packages/persistence` (dev, scripts `db:*`) | ADR-009 (OD-007): ejecuta el worker sin build en dev y en Docker. ADR-010: ejecuta `db:migrate`/`db:reset` de `persistence`; de runtime solo en `apps/worker` |
 | `zod` | `4.6.7` | `packages/core` (`dependencies`) | Compatible con `^3.25.32 \|\| ^4.2.0` (peer de `@langchain/langgraph` 1.5.1) y `^3.25.76 \|\| ^4` (dependencia de `@langchain/core` 1.2.18); `z.toJSONSchema` nativo; TASK-004 |
 | `vitest` | `5.0.5` | raíz (dev) | Runner de tests (OD-009); engines `^22.12.0 \|\| ^24 \|\| >=26`; TASK-004 |
 | `@vitest/coverage-v8` | `5.0.5` | raíz (dev) | Cobertura v8; peer `vitest 5.0.5` exacto; TASK-004 |
@@ -237,9 +259,9 @@ Compatibilidad: peers verificados con `npm view` y release coordinado langgraphj
 
 - ESM en todo el monorepo. `type: module`.
 - Nombres de archivos `kebab-case.ts`; tipos y esquemas `PascalCase`; esquemas Zod sufijo `Schema` (`RunEventSchema`) y tipo inferido sin sufijo (`RunEvent`).
-- Errores: siempre subclases de `AgentLabError` con `code` estable (`BUDGET_EXCEEDED`, `PROVIDER_RATE_LIMIT`, …). Nunca `throw new Error("…")` fuera de tests.
+- Errores: siempre subclases de `AgentLabError` con `code` estable (`BUDGET_EXCEEDED`, `PROVIDER_RATE_LIMIT`, `API_KEY_ENV_INVALID`, …; lista cerrada en `core/errors.ts`, OD-016 ampliada por OD-027). Nunca `throw new Error("…")` fuera de tests.
 - Nada de `console.log` en paquetes; se usa el logger de `observability` (M3) o `pino` inyectado (M0–M2).
-- Tests junto al código (`*.test.ts`) para unitarios; `tests/integration` para los que necesitan PostgreSQL; `tests/e2e` (M3+) con Playwright.
+- Tests junto al código (`*.test.ts`) para unitarios; `src/**/*.integration.test.ts` del paquete o `tests/integration` para los que necesitan PostgreSQL, en serie (`fileParallelism: false`; testing-conventions, regla 11); `tests/e2e` (M3+) con Playwright.
 - Variables de entorno: declaradas y validadas con Zod en `core/env.ts`; una variable no declarada no existe.
 
 ## 11. Decisiones registradas

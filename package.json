@@ -12,8 +12,11 @@
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,js,json}\" \"*.{js,json}\"",
-    "format:check": "prettier --check \"{apps,packages}/**/*.{ts,tsx,js,json}\" \"*.{js,json}\""
+    "db:generate": "pnpm --filter @agentlab/persistence db:generate",
+    "db:migrate": "pnpm --filter @agentlab/persistence db:migrate",
+    "db:reset": "pnpm --filter @agentlab/persistence db:reset",
+    "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,js,json}\" \"*.{js,json}\" \"!packages/persistence/migrations/meta/**\"",
+    "format:check": "prettier --check \"{apps,packages}/**/*.{ts,tsx,js,json}\" \"*.{js,json}\" \"!packages/persistence/migrations/meta/**\""
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

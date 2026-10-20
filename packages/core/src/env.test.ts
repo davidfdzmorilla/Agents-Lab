@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { EnvSchema, createSecretResolver, loadEnv } from "./env.js";
+import {
+  EnvSchema,
+  createSecretResolver,
+  isApiKeyEnvName,
+  loadEnv,
+  loadTestDatabaseUrl,
+} from "./env.js";
 import { EnvValidationError } from "./errors.js";
 
 const DB = "postgres://user@localhost:5432/agentlab";
@@ -261,5 +267,65 @@ describe("createSecretResolver", () => {
   it("reads process.env by default", () => {
     vi.stubEnv("GEMINI_API_KEY", "from-process");
     expect(createSecretResolver()("GEMINI_API_KEY")).toBe("from-process");
+  });
+});
+
+describe("loadTestDatabaseUrl", () => {
+  const TEST_URL = "postgresql://tester@localhost:5432/agentlab_test";
+
+  it("returns DATABASE_URL_TEST when valid", () => {
+    expect(loadTestDatabaseUrl({ DATABASE_URL_TEST: TEST_URL })).toBe(TEST_URL);
+  });
+
+  it("fails with the fixed message when absent", () => {
+    expect(() => loadTestDatabaseUrl({})).toThrow(EnvValidationError);
+    expect(() => loadTestDatabaseUrl({})).toThrow(
+      "DATABASE_URL_TEST is required for integration tests and db:reset (cp .env.example .env)",
+    );
+  });
+
+  it("treats an empty string as absent", () => {
+    expect(() => loadTestDatabaseUrl({ DATABASE_URL_TEST: "" })).toThrow(
+      /is required/,
+    );
+  });
+
+  it("does not fall back to DATABASE_URL", () => {
+    expect(() => loadTestDatabaseUrl({ DATABASE_URL: DB })).toThrow(/required/);
+  });
+
+  it("rejects an invalid URL without echoing it", () => {
+    const bad = "mysql://secretuser:secretpw@host/db";
+    let message = "";
+    try {
+      loadTestDatabaseUrl({ DATABASE_URL_TEST: bad });
+    } catch (e) {
+      expect(e).toBeInstanceOf(EnvValidationError);
+      message = (e as Error).message;
+    }
+    expect(message).not.toBe("");
+    expect(message).not.toContain("secretpw");
+    expect(message).not.toContain(bad);
+  });
+
+  it("reads process.env by default", () => {
+    vi.stubEnv("DATABASE_URL_TEST", TEST_URL);
+    expect(loadTestDatabaseUrl()).toBe(TEST_URL);
+  });
+});
+
+describe("isApiKeyEnvName", () => {
+  it("accepts a conforming name", () => {
+    expect(isApiKeyEnvName("OPENROUTER_API_KEY")).toBe(true);
+  });
+
+  it.each([
+    ["an OpenAI-style key", "sk-abc123"],
+    ["a Google-style key", "AIzaSyExample"],
+    ["lowercase", "openrouter_api_key"],
+    ["empty", ""],
+    ["no suffix", "OPENROUTER"],
+  ])("rejects %s", (_label, name) => {
+    expect(isApiKeyEnvName(name)).toBe(false);
   });
 });

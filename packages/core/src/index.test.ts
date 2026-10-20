@@ -14,6 +14,7 @@ describe("public API", () => {
         "BudgetSchema",
         "EnvSchema",
         "EnvValidationError",
+        "InvalidApiKeyEnvError",
         "InvalidTransitionError",
         "InvocationErrorSchema",
         "InvocationUsageSchema",
@@ -33,8 +34,10 @@ describe("public API", () => {
         "TeamDefinitionSchema",
         "canTransition",
         "createSecretResolver",
+        "isApiKeyEnvName",
         "isTerminalRunStatus",
         "loadEnv",
+        "loadTestDatabaseUrl",
       ].sort(),
     );
   });

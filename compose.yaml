@@ -17,6 +17,18 @@ services:
       timeout: 5s
       retries: 10
 
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      target: migrate
+    networks: [backend]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set it in .env (cp .env.example .env)}
+
   # enabled by TASK-007, which adds docker/web.Dockerfile
   web:
     profiles: ["web"]
@@ -26,10 +38,11 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     networks: [backend, egress]
-    # TASK-005 adds a one-shot "migrate" service; web and worker will depend on it
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: ${DATABASE_URL:?set it in .env (cp .env.example .env)}
       LOG_LEVEL: ${LOG_LEVEL:-}
@@ -39,14 +52,16 @@ services:
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
+      target: runtime
     init: true
     # Must stay above SHUTDOWN_GRACE_MS (30000 ms) plus margin.
     stop_grace_period: 40s
     networks: [backend, egress]
-    # TASK-005 adds a one-shot "migrate" service; web and worker will depend on it
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: ${DATABASE_URL:?set it in .env (cp .env.example .env)}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-}
@@ -60,6 +75,31 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
       AGENTLAB_PROVIDER: ${AGENTLAB_PROVIDER:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+  # Run by make test / make validate only. Reaches db through the internal backend network (no internet).
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      target: base
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend]
+    depends_on:
+      db:
+        condition: service_healthy
+    working_dir: /work
+    environment:
+      # DATABASE_URL_TEST cannot use :? here: compose interpolates every service, so it would break make up.
+      # The Makefile checks it inside the container instead.
+      DATABASE_URL_TEST: ${DATABASE_URL_TEST:-}
+      npm_config_store_dir: /pnpm-store
+      COREPACK_ENABLE_NETWORK: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+    volumes:
+      - pnpm-store:/pnpm-store:ro
+      - validate-node-modules:/work/node_modules
 
   ollama:
     profiles: ["local"]
@@ -76,3 +116,10 @@ networks:
 volumes:
   pgdata:
   ollama:
+  # Created by make test / make validate (TASK-003); shared with the node container of the install phase.
+  pnpm-store:
+    external: true
+    name: agentlab-pnpm-store
+  validate-node-modules:
+    external: true
+    name: agentlab-validate-node-modules

@@ -5,7 +5,7 @@
 | Estado | Accepted (2026-10-20, aprobado por el responsable humano) |
 | Fecha | 2026-10-20 |
 | Decisores | Responsable humano · architect |
-| Relacionado | SPEC §13 OD-007; ARCHITECTURE §8, §9; ADR-001; TASK-003, TASK-008, TASK-023 |
+| Relacionado | SPEC §13 OD-007; ARCHITECTURE §8, §9; ADR-001; TASK-003, TASK-008, TASK-023; §2 ampliado por ADR-010 (`tsx` dev de `packages/persistence`) |
 
 ## Contexto
 TASK-001 dejó `tsconfig.base.json` con `module: ESNext`, `moduleResolution: bundler` y `verbatimModuleSyntax` (imports relativos sin extensión), `rootDir: src` por workspace, y todos los paquetes exportan `./src/index.ts` sin paso de build (ADR-001). `apps/web` no tiene el problema: Next transpila los paquetes del workspace. Vitest y drizzle-kit cargan TypeScript por sí mismos. Lo que falta es cómo arranca `apps/worker` en tres sitios: desarrollo, el contenedor de TASK-003 y el proceso hijo del test de TASK-008.

@@ -50,7 +50,28 @@ export function loadEnv(source: EnvSource = process.env): Env {
   return result.data;
 }
 
+export function loadTestDatabaseUrl(source: EnvSource = process.env): string {
+  const value = Object.hasOwn(source, "DATABASE_URL_TEST")
+    ? source["DATABASE_URL_TEST"]
+    : undefined;
+  if (value === undefined || value === "") {
+    throw new EnvValidationError(
+      "DATABASE_URL_TEST is required for integration tests and db:reset (cp .env.example .env)",
+    );
+  }
+  if (!postgresUrl().safeParse(value).success) {
+    throw new EnvValidationError(
+      "DATABASE_URL_TEST is not a valid postgres:// or postgresql:// URL",
+    );
+  }
+  return value;
+}
+
 const SECRET_NAME = /^[A-Z][A-Z0-9_]*_API_KEY$/;
+
+export function isApiKeyEnvName(name: string): boolean {
+  return SECRET_NAME.test(name);
+}
 const DECLARED_NAMES: ReadonlySet<string> = new Set(
   Object.keys(EnvSchema.shape),
 );
@@ -59,7 +80,7 @@ export function createSecretResolver(
   source: EnvSource = process.env,
 ): SecretResolver {
   return (envName) => {
-    if (!SECRET_NAME.test(envName) || !DECLARED_NAMES.has(envName))
+    if (!isApiKeyEnvName(envName) || !DECLARED_NAMES.has(envName))
       return undefined;
     if (!Object.hasOwn(source, envName)) return undefined;
     const value = source[envName];

@@ -2,9 +2,9 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-20 (cierre TASK-003-fix-1) |
+| Última actualización | 2026-10-21 (cierre TASK-005) |
 | Hito actual | M0 |
-| Tareas READY | TASK-005, TASK-010, TASK-012 |
+| Tareas READY | TASK-007, TASK-008, TASK-010, TASK-012 |
 
 ## Cómo se lee este documento
 
@@ -105,22 +105,33 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `vitest.config.ts` y tests fuera de `src/` conviven con `rootDir: src`: rootDir se mantiene; decidir include/tsconfig aparte (TD-010).
 
 ### TASK-005 · packages/persistence: Drizzle, migración inicial, repositorios base
-- **Estado**: READY · **Owner**: persistence-dev · **Depende de**: TASK-003, TASK-004 · **security REQUIRED**
-- **Scope**: `packages/persistence/**`, `drizzle.config.ts`, `turbo.json`, `Makefile`, `compose.yaml` (estos tres fuera del rol de persistence-dev: se reparten con devops al planificar)
+- **Estado**: DONE · **Owner**: persistence-dev · **Depende de**: TASK-003, TASK-004 · **security REQUIRED**
+- **Scope**: `packages/persistence/**` (incluye `packages/persistence/drizzle.config.ts`), `turbo.json`, `Makefile`, `compose.yaml`, `.env.example`, `package.json` (raíz), `pnpm-lock.yaml`, `docker/worker.Dockerfile`, `packages/core/src/env.ts`, `packages/core/src/env.test.ts`, `packages/core/src/index.test.ts`, `packages/core/src/errors.ts`, `packages/core/src/errors.test.ts` (reparto por pasos y owners en el plan: devops, core-dev, persistence-dev)
+- **Dependencias autorizadas** (versión exacta, sin `^`): `dependencies` de `packages/persistence`: `drizzle-orm` 0.45.4, `pg` 8.23.1, `@langchain/langgraph-checkpoint-postgres` 1.1.0, `@langchain/langgraph-checkpoint` 1.2.0, `@langchain/core` 1.2.18; `devDependencies` de `packages/persistence`: `drizzle-kit` 0.31.11, `@types/pg` 8.23.1, `tsx` 4.23.15 (ADR-010: dev de persistence para sus scripts `db:*`; runtime solo en `apps/worker`).
+- **Plan aprobado**: `docs/reports/TASK-005-plan.md` con decisiones humanas del 2026-10-20 (ADR-010 Accepted; OD-019…OD-025).
 - **DoD**:
   - `turbo.json` deja pasar `DATABASE_URL_TEST` a las tareas de test (`passThroughEnv`) y `make test` ejecuta los tests de integración contra `agentlab_test`.
   - `DATABASE_URL_TEST` obligatoria para `make test` (y para el servicio `migrate` de test, si lo hubiera): falla con mensaje claro si falta (`:?` o comprobación equivalente); nunca se pasa a `web` ni `worker`.
   - `make test` corre en contenedor y no llega a `localhost:5432`: `DATABASE_URL_TEST` apunta al servicio `db` de compose (red y host definidos en el plan; `.env.example` actualizado).
   - Servicio one-shot `migrate` en `compose.yaml` (`depends_on: db` healthy, ejecuta `pnpm db:migrate` y sale); `web` y `worker` dependen de que termine con éxito.
-  - `drizzle.config.ts` con `schemaFilter: ["public"]`: Drizzle nunca genera ni aplica cambios sobre el esquema `langgraph` (ADR-002).
+  - `packages/persistence/drizzle.config.ts` con `schemaFilter: ["public"]`: Drizzle nunca genera ni aplica cambios sobre el esquema `langgraph` (ADR-002); su tabla de control vive en el esquema `drizzle`, excepción documentada en ARCHITECTURE §6 (OD-024).
   - `pnpm db:migrate` aplica las migraciones de Drizzle y, como paso explícito, ejecuta `setup()` del checkpointer de LangGraph sobre el esquema `langgraph` (ADR-002).
-  - Esquema Drizzle con las 11 tablas de `ARCHITECTURE.md §6`, columnas obligatorias, índices y `unique(run_id, seq)`.
+  - Migración y `setup()` serializadas con `pg_advisory_xact_lock` en el servicio `migrate`: dos ejecuciones concurrentes no chocan (test).
+  - La instalación offline de la fase de tests de `make test` usa `--ignore-scripts`: ningún script de dependencia corre con acceso a `db` como superusuario (si un paquete necesitara su postinstall, se cita y decide el humano).
+  - Imagen de `migrate` en un stage propio de `docker/worker.Dockerfile` con las devDependencies de `persistence`, instalada sin ejecutar scripts (`--ignore-scripts`) (OD-026); no se reutiliza para `worker` ni `web`.
+  - `make test` en dos fases (OD-019): instalación con red; tests en un servicio `test` solo en la red interna de `db`. `make test` deja `db` en marcha; se para con `make down` (va al README en TASK-009).
+  - URL de la base de pruebas vía `loadTestDatabaseUrl()` en `core` (OD-020); nadie lee `process.env` fuera de `core/env.ts`.
+  - `EventsRepository.append`: `seq` con bloqueo de la fila del run + `MAX+1` (OD-022); ARCHITECTURE §3.4 corregido con el SQL probado.
+  - Esquema según la tabla de OD-021, sin columnas "por si acaso": lo que M1 no use, fuera. Repositorios con `create`/`get`/`list`; `get` devuelve `null` si el id no existe (OD-025).
+  - Esquema Drizzle con 8 tablas de `ARCHITECTURE.md §6` (OD-028: `tool_invocations` nace en TASK-030, `run_checkpoints` en TASK-023, `evaluations` en TASK-036, cada una con su migración), columnas obligatorias, índices y `unique(run_id, seq)`. La regla "lo que M1 no use, fuera" manda sobre el número de tablas.
   - Migración `0000_init.sql` generada y aplicable con `pnpm db:migrate`; `pnpm db:reset` recrea `agentlab_test`.
-  - `RunsRepository` (`create`, `get`, `claimNext` con `SKIP LOCKED`, `transition` que respeta `canTransition`, `heartbeat`), `EventsRepository` (`append` con `seq` atómico, `listSince(runId, seq)`), `ProjectsRepository`, `AgentDefinitionsRepository`.
+  - `RunsRepository` (`create`, `get`, `claimNext` con `SKIP LOCKED`, `transition` que respeta `canTransition`, `heartbeat`), `EventsRepository` (`append` con `seq` atómico, `listSince(runId, seq)`), `ProjectsRepository`, `AgentDefinitionsRepository`, `ProviderConfigsRepository` (`create`/`get`/`listByProject`; valida `api_key_env`).
   - `transition` a un estado inválido lanza `InvalidTransitionError` (409 en API).
   - Tests de integración contra PostgreSQL real; `claimNext` probado con dos llamadas concurrentes que no reclaman el mismo run.
   - Si falta `DATABASE_URL_TEST`, los tests de integración fallan con un mensaje claro (no se saltan; testing-conventions regla 6). `env.ts` no le da valor por defecto: las credenciales de la base de pruebas no van en código (OD-018).
   - `provider_configs.api_key_env` es `text`; test que falla si se intenta guardar un valor que parezca una clave (`sk-`, `AIza`, longitud > 40 sin espacios).
+  - Validación de `api_key_env` en el repositorio, antes del INSERT, con la regla de OD-017 importada de `core`; lanza `InvalidApiKeyEnvError` (`code: "API_KEY_ENV_INVALID"`, en `core`, OD-027) que no incluye el valor (test que lo compruebe). Sin `CHECK` en la base: un valor rechazado no aparece en los logs de `db` (OD-023).
+  - Tests de integración (`*.integration.test.ts`) en serie: un solo runner, `fileParallelism: false` (regla en testing-conventions).
 
 ### TASK-006 · CI: lint, typecheck, test contra PostgreSQL de servicio
 - **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-005, OD-004
@@ -134,7 +145,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Lint de los ficheros de configuración de la raíz (`eslint.config.js`, etc.) incluido en el pipeline (TD-007).
 
 ### TASK-007 · apps/web: esqueleto Next.js + `GET /api/health`
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-005 · **security REQUIRED**
+- **Estado**: READY · **Owner**: web-dev · **Depende de**: TASK-005 · **security REQUIRED**
 - **Scope**: `apps/web/**`, `docker/web.Dockerfile`, `compose.yaml`, `Makefile` (estos tres fuera del rol de web-dev: se reparten con devops al planificar; `compose.yaml` para quitar el perfil `web`, OD-G)
 - **DoD**:
   - `docker/web.Dockerfile` (multi-stage, `pnpm fetch`, no root, `TURBO_TELEMETRY_DISABLED=1`) y `docker compose up --build` sirve `/api/health` en `127.0.0.1:3000`.
@@ -146,7 +157,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `next.config.ts` convive con `rootDir: src`: rootDir se mantiene; decidir include/tsconfig aparte (TD-010).
 
 ### TASK-008 · apps/worker: bucle de reclamación vacío con heartbeat y apagado limpio
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005
+- **Estado**: READY · **Owner**: engine-dev · **Depende de**: TASK-005
 - **Scope**: `apps/worker/**`, `docker/worker.Dockerfile` (fuera del rol de engine-dev: se reparte con devops al planificar)
 - **Dependencias autorizadas**: ninguna nueva; usa `tsx` ya declarado por TASK-003 (ADR-009).
 - **DoD**:
@@ -157,6 +168,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Con `SIGTERM` bajo `tsx`: el worker deja de reclamar, espera al run en curso hasta `SHUTDOWN_GRACE_MS`, lo deja en estado coherente y sale con código 0. Test en proceso hijo lanzado con `tsx`. Si falla bajo el CLI de `tsx`, fallback autorizado `node --import tsx src/index.ts` (ADR-009), documentado en el informe.
   - Test: crear run `queued` en DB, arrancar worker en proceso hijo, verificar `completed` y heartbeat actualizado.
   - Imagen de runtime del worker solo con los `node_modules` de producción del worker + `tsx`: sin pnpm/corepack ni el monorepo completo; nada de `*.pem`/`*.key` en la imagen (TD-015).
+  - Red `internal: true` solo para `db` y `test` (TD-021); `cap_drop: [ALL]` y `no-new-privileges` en `migrate` y `worker`; `test` sin uid 0; `--ignore-scripts` en `docker/worker.Dockerfile:12` y `:16`; `.dockerignore` alineado con `HOST_TAR` (TD-022).
+  - Las imágenes de `worker` y `migrate` no contienen devDependencies de la raíz; evidencia: listado de `/app/node_modules/.bin` (TD-020). El plan prueba `pnpm deploy` con `--ignore-scripts` y con el enlace a `@agentlab/core` antes de comprometerse.
   - El logger del worker oculta (`redact`) `*_API_KEY` y `DATABASE_URL*` desde su introducción, sin esperar a TASK-027 (TD-011, security).
   - Al arrancar, el worker comprueba que existe el esquema `langgraph`; si no, sale con código ≠ 0 y un mensaje claro que indica ejecutar `pnpm db:migrate` (ADR-002). Test del caso de fallo.
 
@@ -164,7 +177,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 - **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-001…TASK-008
 - **Scope**: `README.md`, `docs/reports/M0-closure.md`, `docs/TASKS.md`, `docs/ROADMAP.md`
 - **DoD**:
-  - README: requisitos, `cp .env.example .env` y rellenar `POSTGRES_PASSWORD`/`DATABASE_URL`/`DATABASE_URL_TEST` antes de `make up`, `make up`, verificación de `/api/health`, cómo ejecutar tests, estructura del repo, enlace a `docs/`.
+  - README: requisitos, `cp .env.example .env` y rellenar `POSTGRES_PASSWORD`/`DATABASE_URL`/`DATABASE_URL_TEST` antes de `make up`, `make up`, verificación de `/api/health`, cómo ejecutar tests (`make test` deja `db` en marcha; se para con `make down`), estructura del repo, enlace a `docs/`.
+  - Tests automáticos de los CLI `db:migrate`/`db:reset` (incluido que el error no lleva la URL) (TD-023).
   - `docs/reports/M0-closure.md` con el criterio de salida de M0 verificado literalmente (comandos y salida).
   - Humano acepta el cierre.
 
@@ -215,8 +229,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-014 · API: `POST /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/result`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-007, TASK-011
-- **Scope**: `apps/web/app/api/runs/**`, `apps/web/lib/api/**`
+- **Scope**: `apps/web/app/api/runs/**`, `apps/web/lib/api/**`, `packages/core/src/errors.ts`, `packages/core/src/errors.test.ts`, `packages/core/src/index.test.ts`, `packages/persistence/src/repositories/rows.ts`, `packages/persistence/src/repositories/events.ts` (+ sus tests) (core y persistence fuera del rol de web-dev: se reparten con core-dev y persistence-dev al planificar)
 - **DoD**:
+  - `RowNotFoundError` (`ROW_NOT_FOUND`) e `InvalidEventPayloadError` (`EVENT_PAYLOAD_INVALID`), subclases de `AgentLabError` en `core`; `persistence` los lanza en lugar de `TypeError` (`rows.ts`) y `ZodError` (`events.ts`) (decisión humana 2026-10-21, TASK-005).
   - Validación Zod del cuerpo (`RunRequestSchema`); 400 con detalle de campos.
   - `POST` crea run `queued` con el presupuesto del proyecto y devuelve `201 { id }` en < 100 ms (no espera al worker).
   - `GET /:id` incluye `status`, `budget`, `budgetUsed`, `steps[]` (derivados de `agent_invocations`), `finishedReason`.
@@ -275,12 +290,12 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ## M3 — Control
 
 ### TASK-023 · Checkpointer PostgreSQL + `run_checkpoints`
-- **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-013, TASK-002 · **Scope**: `packages/persistence/src/checkpointer/**`, `packages/orchestrator/src/graph/*.ts`
-- **DoD**: `thread_id = runId`; relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio; test de que `setup()` es idempotente (dos ejecuciones seguidas) y `put`/`getTuple` contra PostgreSQL 16 en el esquema `langgraph`; con `SIGTERM`, el run en curso guarda checkpoint antes de que el worker salga (ADR-009).
+- **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-013, TASK-002 · **Scope**: `packages/persistence/src/checkpointer/**`, `packages/orchestrator/src/graph/*.ts`, esquema y migración de `run_checkpoints` en `packages/persistence/**` (OD-028)
+- **DoD**: `thread_id = runId`; la tabla `run_checkpoints` nace aquí con su migración (OD-028); relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio; test de que `setup()` es idempotente (dos ejecuciones seguidas) y `put`/`getTuple` contra PostgreSQL 16 en el esquema `langgraph`; con `SIGTERM`, el run en curso guarda checkpoint antes de que el worker salga (ADR-009).
 
 ### TASK-024 · `LISTEN/NOTIFY` + SSE real con `Last-Event-ID`
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-023 · **Scope**: `packages/persistence/src/notify/**`, `apps/web/app/api/runs/[id]/events/**`, `apps/web/components/run-timeline/**`
-- **DoD**: evento persistido antes de notificar; reconexión recupera huecos; ping cada 15 s; cierre en terminal; retira el polling (cierra TD-001).
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-023 · **Scope**: `packages/persistence/src/notify/**`, `packages/persistence/src/repositories/events.ts` (el NOTIFY va en la transacción de `append`), `apps/web/app/api/runs/[id]/events/**`, `apps/web/components/run-timeline/**`
+- **DoD**: evento persistido antes de notificar; reconexión recupera huecos; ping cada 15 s; cierre en terminal; retira el polling (cierra TD-001); un payload de evento inválido llega como `InvalidEventPayloadError` (`EVENT_PAYLOAD_INVALID`), no como `ZodError` (decisión humana 2026-10-21).
 
 ### TASK-025 · Cancelación cooperativa y `POST /resume`
 - **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-023 · **Scope**: `packages/orchestrator/**`, `apps/web/app/api/runs/[id]/cancel/**`, `apps/web/app/api/runs/[id]/resume/**`
@@ -292,7 +307,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-027 · packages/observability: eventos, spans OTel, métricas, `redactSecrets`
 - **Estado**: BLOCKED · **Owner**: core-dev · **Depende de**: TASK-023 · **Scope**: `packages/observability/**`, `packages/persistence/src/redaction/**`, `compose.yaml` (perfil `observability`)
-- **DoD**: span por run/agente/herramienta; exportador OTLP opcional; `redactSecrets` + test de fuga; prompts persistidos solo tras redacción.
+- **DoD**: `packages/core/src/env.test.ts` (`loadEnv > reads process.env by default`) aislado del `process.env` real (TD-024); span por run/agente/herramienta; exportador OTLP opcional; `redactSecrets` + test de fuga; prompts persistidos solo tras redacción.
 
 ### TASK-028 · UI: métricas por run y comparación de dos runs
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-027 · **Scope**: `apps/web/app/(app)/runs/**`, `apps/web/components/**`
@@ -305,8 +320,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ## M4 — Extensión
 
 ### TASK-030 · packages/tools: ToolRegistry, `artifact.read/write`, envoltura de resultados no confiables
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-011, OD-006 · **Scope**: `packages/tools/**`, `packages/orchestrator/src/nodes/agent-invoke.ts`
-- **DoD**: validación Zod de entrada y salida; resultado envuelto con `trust="untrusted"`; `tool_invocations` persistidas.
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-011, OD-006 · **Scope**: `packages/tools/**`, `packages/orchestrator/src/nodes/agent-invoke.ts`, esquema y migración de `tool_invocations` en `packages/persistence/**` (fuera del rol de engine-dev: se reparte con persistence-dev; OD-028)
+- **DoD**: la tabla `tool_invocations` nace aquí con su migración (OD-028); validación Zod de entrada y salida; resultado envuelto con `trust="untrusted"`; `tool_invocations` persistidas.
 
 ### TASK-031 · `web.search` y `source.read` con allowlist HTTP y bloqueo SSRF
 - **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-030 · **Scope**: `packages/tools/src/web/**`
@@ -331,12 +346,12 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ## M5 — Calidad
 
 ### TASK-036 · packages/evaluations: dataset, evaluadores, `pnpm bench`
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-035 · **Scope**: `packages/evaluations/**`, `datasets/**`
-- **DoD**: ≥ 10 tareas con criterios objetivos; evaluador escribe en `evaluations`; `pnpm bench --provider X` reproducible.
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-035 · **Scope**: `packages/evaluations/**`, `datasets/**`, esquema y migración de `evaluations` en `packages/persistence/**` (fuera del rol de engine-dev: se reparte con persistence-dev; OD-028)
+- **DoD**: la tabla `evaluations` nace aquí con su migración (OD-028); ≥ 10 tareas con criterios objetivos; evaluador escribe en `evaluations`; `pnpm bench --provider X` reproducible.
 
 ### TASK-037 · Pruebas de seguridad (inyección, SSRF, fugas, escalada de presupuesto)
 - **Estado**: BLOCKED · **Owner**: security · **Depende de**: TASK-036 · **Scope**: `tests/security/**`, `docs/security/**`
-- **DoD**: suite automatizada de los cuatro vectores; `SECURITY_POLICY.md` completa; usuario de aplicación sin DDL (TD-013; esta tarea no se retrasa ni va después de ningún despliegue fuera de localhost: TD-013 lo exige); `db` sin salida a internet también con el override de desarrollo (TD-016); **security REQUIRED**.
+- **DoD**: suite automatizada de los cuatro vectores; `SECURITY_POLICY.md` completa; usuario de aplicación sin DDL y rol no superusuario dueño de `agentlab_test` para el servicio `test` (TD-013, TD-021; esta tarea no se retrasa ni va después de ningún despliegue fuera de localhost: TD-013 lo exige); `db` sin salida a internet también con el override de desarrollo (TD-016); **security REQUIRED**.
 
 ### TASK-038 · Licencia (ADR-008), NOTICE y revisión de dependencias
 - **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-037 · **Scope**: `LICENSE`, `NOTICE`, `docs/adr/ADR-008-*.md`, `docs/THIRD_PARTY.md`
@@ -354,7 +369,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 - **Estado**: BLOCKED · **Owner**: architect · **Depende de**: TASK-009
 - **Scope**: `docs/adr/**`, `docs/ARCHITECTURE.md` (§9), `docs/reports/TASK-040-plan.md`
 - **DoD**:
-  - ADR `Proposed` que evalúa subir TypeScript a 6/7 (cuando typescript-eslint lo soporte) y pnpm a una versión mantenida, con compatibilidad verificada y plan de migración; paga TD-006. `packageManager` y el pnpm de los Dockerfiles/Makefile fijados con hash (`pnpm@<v>+sha512.…`); `node_modules` de validación sin volumen persistente o verificado entre ejecuciones (TD-017).
+  - ADR `Proposed` que evalúa subir TypeScript a 6/7 (cuando typescript-eslint lo soporte) y pnpm a una versión mantenida, con compatibilidad verificada y plan de migración; paga TD-006. `packageManager` y el pnpm de los Dockerfiles/Makefile fijados con hash (`pnpm@<v>+sha512.…`); `node_modules` de validación sin volumen persistente o verificado entre ejecuciones (TD-017). Subir `drizzle-kit` para quitar `@esbuild-kit/*` obsoletos (TD-019).
   - `Accepted` solo tras aprobación humana.
 
 ---
@@ -404,3 +419,14 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-20 | TASK-003-fix-1: decisión humana (b) — la evidencia obtenida con la evasión no vale; devops repite la prueba de Linux sin rodeos (lo no probable queda como limitación). Regla nueva en AGENTS.md §4 (docs-keeper): un bloqueo de hook se cita y se para; una evasión invalida la evidencia de la fase. Hooks corregidos por el humano (7f06509: Write/Edit en el scratchpad permitidos). |
 | 2026-10-20 | TASK-003-fix-1: devops repite pruebas sin rodeos (macOS y Linux; limitaciones documentadas); tester PASS (pruebas propias; 1 bloqueo citado y parado); reviewer APPROVED (1 NIT opcional en el comentario de Makefile:45). → REVIEW, lista para `/close-task`. |
 | 2026-10-20 | TASK-003-fix-1 → DONE (tester PASS, reviewer APPROVED, security no aplica por decisión humana; sin plan del architect). Informe en docs/reports/TASK-003-fix-1.md. Sin deuda nueva. Desbloqueadas: ninguna. |
+| 2026-10-20 | TASK-003-fix-1 commit 0f90606 |
+| 2026-10-20 | TASK-005: plan aprobado con decisiones humanas — ADR-010 Accepted (tsx dev en persistence; ampliación de ADR-009 §2); OD-019 (dos fases, servicio `test` en red interna), OD-020 (`loadTestDatabaseUrl` en core), OD-021 (tabla del plan, sin columnas por si acaso), OD-022 (bloqueo de fila + MAX+1), OD-023 (NO CHECK: validación en repositorio con error sin valor), OD-024 (esquema `drizzle`), OD-025 (create/get/list, null). Scope ampliado; deps aprobadas; advisory lock en `migrate` al DoD; TASK-024 añade `events.ts`; TASK-009 README documenta `make test`/`make down`. Pendiente: architect registra OD-019…025 en SPEC §13 y actualiza ARCHITECTURE §1/§3.4/§6/§9; docs-keeper añade regla de tests de integración en serie. |
+| 2026-10-20 | TASK-005: decisiones humanas — OD-026 (a) stage propio de `migrate` con devDependencies de persistence, sin scripts, no reutilizable; OD-027 (a) `InvalidApiKeyEnvError` en core; OD-028 (c) 8 tablas en `0000_init`, las otras tres nacen en TASK-023/030/036; scope + `index.test.ts`, `errors.ts`, `errors.test.ts` de core; `ProviderConfigsRepository` al DoD; testing-conventions alineada (docs-keeper). |
+| 2026-10-20 | TASK-005 → IN_PROGRESS. OD-026…OD-028 registradas por el architect (SPEC §13, ARCHITECTURE §1/§6/§10, plan). Pasos 1 (devops: deps y scripts) y 2 (core-dev: `loadTestDatabaseUrl`, `isApiKeyEnvName`, `InvalidApiKeyEnvError`) lanzados en paralelo (ficheros disjuntos). |
+| 2026-10-20 | TASK-005: pasos 1 (devops) y 2 (core-dev) entregados (citas verificadas). Decisiones humanas: `--ignore-scripts` en la instalación offline de la fase de tests; paso 4b (devops completa `test`/`typecheck` de persistence tras el paso 4) aprobado; TD-019 LOW (`@esbuild-kit/*` obsoletos → TASK-040); testing-conventions se alinea antes del paso 3. |
+| 2026-10-21 | TASK-005: pasos 3 (devops: `make test`/`validate` en dos fases, servicio `test`), 4 (persistence-dev: 8 tablas, `0000_init`, 5 repositorios, 90 tests de integración), 4b (devops: scripts `test`/`typecheck`) y 5 (devops: servicio `migrate`) entregados. Decisiones humanas: imagen `migrate` sin las devDependencies de la raíz (opción b); `DATABASE_URL_TEST` en `migrate` se verifica directamente (no vale "por construcción" como evidencia); `t5.mk` de persistence-dev en el scratchpad es un uso aceptable de Write, sin incidencia. |
+| 2026-10-21 | TASK-005: paso 5 — la raíz no se puede excluir de la imagen `migrate` sin rediseño (pnpm 9 instala siempre el importer `.`); decisión humana A: TD-020 LOW, se paga en TASK-008 con TD-015 (DoD de TASK-008 ampliado). → `/verify-task`. |
+| 2026-10-21 | TASK-005: tester PASS (21 ✅ + 1 ⚠️: caso de variable vacía bloqueado por hook, cubierto por tests de core); reviewer CHANGES_REQUESTED (1 MAJOR: el test de >40 caracteres no prueba el límite; 5 MINOR, 2 NIT). → IN_PROGRESS, ciclo de corrección 1/3 (persistence-dev). security lanzado en paralelo (no toca los ficheros del ciclo). |
+| 2026-10-21 | TASK-005 ciclo 1/3: persistence-dev corrige C1 (test del límite de 40), C2 (ROLLBACK protegido) y C3 (`setupCheckpointer` interno); tester PASS (22/22; mutación confirma el límite; fallos extra = cascada del spy); reviewer APPROVED (1 MINOR: restaurar spies; 1 NIT); security APPROVED (2 MEDIUM y varios LOW como deuda propuesta). → REVIEW; pendiente de decisiones humanas para `/close-task`. |
+| 2026-10-21 | TASK-005: decisiones humanas de cierre — TD-021 MEDIUM (contenedor `test`: red → TASK-008, rol → TASK-037); exportación del esquema = hueco de diseño, se corrige ya (solo tipos y repositorios desde `index.ts`) + `restoreMocks: true`; TD-022/023/024 LOW; TD-011/017/019 actualizadas; `RowNotFoundError`/`InvalidEventPayloadError` decididos (se implementan en TASK-014; DoD de TASK-014 y TASK-024); architect corrige plan decisión 20; docs-keeper alinea regla 2 de testing-conventions. |
+| 2026-10-21 | TASK-005 → DONE (tester PASS, re-test 22/22; reviewer APPROVED en el ciclo de corrección 1/3 y en la revisión acotada de exports; security APPROVED). Informe en docs/reports/TASK-005.md. Desbloqueadas: TASK-007 y TASK-008 (READY). TASK-006 sigue BLOCKED (OD-004 abierta). |

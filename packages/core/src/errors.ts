@@ -9,6 +9,7 @@ export type AgentLabErrorCode =
   | "PROVIDER_RESPONSE"
   | "BUDGET_EXCEEDED"
   | "ENV_INVALID"
+  | "API_KEY_ENV_INVALID"
   | "INVALID_TRANSITION";
 
 export interface AgentLabErrorOptions {
@@ -103,5 +104,15 @@ export class InvalidTransitionError extends AgentLabError {
     );
     this.from = from;
     this.to = to;
+  }
+}
+
+export class InvalidApiKeyEnvError extends AgentLabError {
+  constructor() {
+    super(
+      "API_KEY_ENV_INVALID",
+      "provider_configs.api_key_env must name an environment variable matching ^[A-Z][A-Z0-9_]*_API_KEY$ (max 40 characters)",
+      false,
+    );
   }
 }

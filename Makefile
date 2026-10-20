@@ -15,7 +15,14 @@ NODE_MODULES_VOLUME := agentlab-validate-node-modules
 # behave the same in bsdtar (macOS) and GNU tar. COPYFILE_DISABLE avoids AppleDouble ._ files.
 HOST_TAR := COPYFILE_DISABLE=1 tar -C "$(CURDIR)" --no-xattrs --exclude=node_modules --exclude=.git --exclude=.turbo --exclude=.pnpm-store --exclude=.env --exclude='.env.*' --exclude=.envrc --exclude='*.env' --exclude='.env-*' --exclude='.env_*' --exclude=settings.local.json --exclude=agent-memory-local -cf - .
 DOCKER_NODE := docker run --rm -i --cap-drop ALL --security-opt no-new-privileges -v $(PNPM_STORE_VOLUME):/pnpm-store -v $(NODE_MODULES_VOLUME):/work/node_modules -e npm_config_store_dir=/pnpm-store -e TURBO_TELEMETRY_DISABLED=1 -w /work $(NODE_IMAGE) bash -euo pipefail -c
-IN_COPY := mkdir -p /work && tar -C /work --no-same-owner -xf - && corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --frozen-lockfile
+# make test / make validate run in two phases (OD-019). Phase 1 has internet and no db: only the lockfile,
+# workspace file and .npmrc enter the container, and --ignore-scripts keeps package code from running
+# (pnpm fetch runs lifecycle scripts otherwise). Phase 2 is the compose `test` service: internal network
+# only, offline install without scripts, then the tests against db.
+LOCK_TAR := COPYFILE_DISABLE=1 tar -C "$(CURDIR)" --no-xattrs -cf - pnpm-lock.yaml pnpm-workspace.yaml .npmrc
+FETCH := mkdir -p /work && tar -C /work --no-same-owner -xf - && corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm fetch --ignore-scripts
+IN_TEST := : "$${DATABASE_URL_TEST:?DATABASE_URL_TEST is required for make test (cp .env.example .env)}" && mkdir -p /work && tar -C /work --no-same-owner -xf - && pnpm install --offline --frozen-lockfile --ignore-scripts
+TEST_RUN := docker compose --profile test run --rm -T --build test bash -euo pipefail -c
 
 help:               ## Lista los targets
 	@set -o pipefail; grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -55,15 +62,17 @@ logs:               ## Sigue los logs
 ps:                 ## Estado de los servicios
 	$(COMPOSE_FILLER) docker compose --profile '*' ps
 
-test:               ## Tests del monorepo en contenedor node fijado (M0: sin base de datos)
+test:               ## Tests en contenedor contra db de compose (requiere .env; deja db en marcha, make down la para)
 	@docker volume create $(PNPM_STORE_VOLUME) >/dev/null
 	@docker volume create $(NODE_MODULES_VOLUME) >/dev/null
-	set -o pipefail; $(HOST_TAR) | $(DOCKER_NODE) '$(IN_COPY) && pnpm test'
+	set -o pipefail; $(LOCK_TAR) | $(DOCKER_NODE) '$(FETCH)'
+	set -o pipefail; $(HOST_TAR) | $(TEST_RUN) '$(IN_TEST) && pnpm test'
 
-validate:           ## typecheck + lint + test + format:check en contenedor node fijado (TD-008)
+validate:           ## typecheck + lint + test + format:check en contenedor, tests contra db (TD-008)
 	@docker volume create $(PNPM_STORE_VOLUME) >/dev/null
 	@docker volume create $(NODE_MODULES_VOLUME) >/dev/null
-	set -o pipefail; $(HOST_TAR) | $(DOCKER_NODE) '$(IN_COPY) && pnpm -r typecheck && pnpm -r lint && pnpm test && pnpm format:check'
+	set -o pipefail; $(LOCK_TAR) | $(DOCKER_NODE) '$(FETCH)'
+	set -o pipefail; $(HOST_TAR) | $(TEST_RUN) '$(IN_TEST) && pnpm -r typecheck && pnpm -r lint && pnpm test && pnpm format:check'
 
 lint:               ## Lint
 	pnpm -r lint

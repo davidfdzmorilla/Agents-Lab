@@ -15,6 +15,22 @@ FROM deps AS prod
 COPY . .
 RUN pnpm install --offline --frozen-lockfile --prod --filter worker...
 
+# One-shot migrations image (OD-026): own stage, never reused by worker or web.
+# Keeps persistence devDependencies (tsx, ADR-010); no lifecycle scripts run.
+FROM base AS migrate-deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+RUN pnpm fetch --ignore-scripts
+COPY . .
+RUN pnpm install --offline --frozen-lockfile --ignore-scripts --filter @agentlab/persistence...
+
+FROM base AS migrate
+ENV NODE_ENV=production \
+    COREPACK_ENABLE_NETWORK=0
+COPY --from=migrate-deps /app /app
+USER node
+WORKDIR /app
+CMD ["pnpm", "db:migrate"]
+
 FROM base AS runtime
 ENV NODE_ENV=production \
     COREPACK_ENABLE_NETWORK=0 \

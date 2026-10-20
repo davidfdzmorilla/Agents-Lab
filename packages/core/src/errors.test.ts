@@ -3,6 +3,7 @@ import {
   AgentLabError,
   BudgetExceededError,
   EnvValidationError,
+  InvalidApiKeyEnvError,
   InvalidTransitionError,
   ProviderAuthError,
   ProviderCapabilityError,
@@ -104,5 +105,17 @@ describe("AgentLabError subclasses", () => {
     expect(err.from).toBe("completed");
     expect(err.to).toBe("running");
     expect(err.message).toContain("completed -> running");
+  });
+
+  it("builds InvalidApiKeyEnvError with a fixed message and no cause", () => {
+    const err = new InvalidApiKeyEnvError();
+    expect(err).toBeInstanceOf(AgentLabError);
+    expect(err.code).toBe("API_KEY_ENV_INVALID");
+    expect(err.retryable).toBe(false);
+    expect(err.name).toBe("InvalidApiKeyEnvError");
+    expect(err.message).toBe(
+      "provider_configs.api_key_env must name an environment variable matching ^[A-Z][A-Z0-9_]*_API_KEY$ (max 40 characters)",
+    );
+    expect("cause" in err).toBe(false);
   });
 });

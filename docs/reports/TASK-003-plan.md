@@ -3,11 +3,11 @@
 | Campo | Valor |
 |---|---|
 | Autor | architect |
-| Fecha | 2026-10-20 (ajustado el 2026-10-21 tras la decisión humana) |
+| Fecha | 2026-10-20 (ajustado el 2026-10-20 tras la decisión humana) |
 | Owner de la implementación | devops |
-| Estado | Aprobado por el humano (2026-10-21) con las decisiones de abajo. Quedan abiertas OD-G y OD-H, que no bloquean (hay recomendación) |
+| Estado | Aprobado por el humano (2026-10-20) con las decisiones de abajo. Quedan abiertas OD-G y OD-H, que no bloquean (hay recomendación) |
 
-## Decisiones humanas (2026-10-21, literal)
+## Decisiones humanas (2026-10-20, literal)
 
 > A  web: (a) — "Compose sirve /api/health en 3000" y el Dockerfile de web pasan a TASK-007. worker: (b) — TASK-003 incluye apps/worker/src/index.ts provisional (log de arranque, espera SIGTERM, sale con 0); añádelo al scope. Un contenedor que no se mantiene arriba no verifica nada; el apagado real sigue en TASK-008.
 > B  (a). .env.example con POSTGRES_PASSWORD y DATABASE_URL(_TEST) vacíos y obligatorios en compose; LANGCHAIN_TRACING_V2=false. README: cp .env.example .env y rellenar antes de make up.
@@ -48,14 +48,14 @@ Hice una copia del repo en el scratchpad de la sesión, sin `node_modules`, `.gi
 - `init.sql` con `\gexec` idempotente y `POSTGRES_DB: postgres` crea `agentlab` y `agentlab_test`. El healthcheck `pg_isready -h 127.0.0.1` solo da *healthy* cuando el init ha terminado.
 - Apagado con `init: true` y `stop_grace_period: 40s`, con un script sustituto en node (no en tsx). Si atiende `SIGTERM` y sale, el contenedor sale con 0. Sin handler sale con 143. Si ignora `SIGTERM`, se mata a los 40 s con 137.
 - **Hallazgo 2:** `docker compose down` sin perfil **no** elimina los contenedores de servicios con perfil. `docker compose --profile '*' down` sí lo hace.
-- **No probé `tsx`** (el hook bloqueó `pnpm add` con `deps_allowed` vacío). El 2026-10-21 tampoco pude probar el perfil `web` con el Dockerfile ausente, porque el hook bloquea ahora escribir en el scratchpad. No lo rodeé. devops lo verifica (tests 3 y 4).
+- **No probé `tsx`** (el hook bloqueó `pnpm add` con `deps_allowed` vacío). El 2026-10-20 tampoco pude probar el perfil `web` con el Dockerfile ausente, porque el hook bloquea ahora escribir en el scratchpad. No lo rodeé. devops lo verifica (tests 3 y 4).
 
 Fuentes, consultadas el 2026-10-20 salvo que se diga otra fecha:
 - Docker Hub API v2 (`/v2/repositories/{library/node,library/postgres,ollama/ollama}/tags`): etiquetas y digests.
 - `tsx` `src/cli.ts`, rama master: reenvía `SIGINT`/`SIGTERM` al hijo y sale con su código.
 - pnpm docs `cli/fetch`: `fetch` solo necesita el lockfile y `pnpm-workspace.yaml`; después va `install --offline`.
 - Turborepo docs "Using environment variables": el modo *strict* es el modo por defecto.
-- Docker docs "Using profiles with Compose" (docs.docker.com/compose/how-tos/profiles, 2026-10-21). Los servicios con perfil solo arrancan si el perfil está activo, `--profile "*"` activa todos, y nombrar un servicio con perfil lo arranca aunque su perfil no esté activo.
+- Docker docs "Using profiles with Compose" (docs.docker.com/compose/how-tos/profiles, 2026-10-20). Los servicios con perfil solo arrancan si el perfil está activo, `--profile "*"` activa todos, y nombrar un servicio con perfil lo arranca aunque su perfil no esté activo.
 
 ## Versiones e imágenes (verificadas en Docker Hub el 2026-10-20)
 
@@ -84,6 +84,7 @@ Antes de escribir los digests, devops los confirma con `docker buildx imagetools
 11. **`make down`, `make logs` y `make ps` con `--profile '*'`** (hallazgo 2). `make up` y `make up-local` siguen sin activar `web` hasta TASK-007.
 12. **`make validate` y `make test` sin tocar el host** (riesgo decidido por el humano):
     - El repo se monta en **solo lectura** en `/src`.
+      - *Nota posterior:* en el ciclo 2, por decisión humana, este montaje se sustituyó por una copia filtrada por stdin, sin montar el repo. Ver «Desviaciones respecto al plan» en `docs/reports/TASK-003.md`.
     - El contenedor copia el repo a `/work` con `tar` y excluye `node_modules`, `.git`, `.turbo`, `.pnpm-store`, `.env` y `.env.*`.
     - `/work/node_modules` es el volumen con nombre `agentlab-validate-node-modules`.
     - El store vive en el volumen `agentlab-pnpm-store`, montado en `/pnpm-store`, fuera del repo.
@@ -133,6 +134,7 @@ TASK-003 **no** migra. Tras `make up`, `agentlab` existe vacía. Mientras el wor
    - `export TURBO_TELEMETRY_DISABLED := 1`. Variables `NODE_IMAGE` (la de la tabla), `PNPM_STORE_VOLUME := agentlab-pnpm-store` y `NODE_MODULES_VOLUME := agentlab-validate-node-modules`.
    - `DOCKER_NODE`: `docker run --rm -v $(CURDIR):/src:ro -v $(PNPM_STORE_VOLUME):/pnpm-store -v $(NODE_MODULES_VOLUME):/work/node_modules -e npm_config_store_dir=/pnpm-store -e TURBO_TELEMETRY_DISABLED=1 -w /work $(NODE_IMAGE) bash -euo pipefail -c`.
    - `IN_COPY`: el prefijo común, `tar -C /src --exclude=./node_modules --exclude='*/node_modules' --exclude=./.git --exclude='*/.turbo' --exclude=./.pnpm-store --exclude=./.env --exclude='./.env.*' -cf - . | tar -C /work -xf - && corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --frozen-lockfile`.
+   - *Nota posterior:* en el ciclo 2, por decisión humana, el montaje `-v $(CURDIR):/src:ro` de estas dos líneas se sustituyó por una copia filtrada por stdin, sin montar el repo. Ver «Desviaciones respecto al plan» en `docs/reports/TASK-003.md`.
    - `validate:` ejecuta `docker volume create` para los dos volúmenes y `$(DOCKER_NODE) '$(IN_COPY) && pnpm -r typecheck && pnpm -r lint && pnpm test && pnpm format:check'`.
    - `test:` es igual, pero solo con `pnpm test` (decisión E-a; sin base de datos, sin `DATABASE_URL_TEST`; TASK-005 lo conecta a `db`).
    - `up` y `up-local` sin cambios. `down`, `logs` y `ps` con `--profile '*'`.
@@ -183,7 +185,7 @@ TASK-003 **no** migra. Tras `make up`, `agentlab` existe vacía. Mientras el wor
 - R4. **`init.sql` solo se ejecuta con el volumen vacío.** Un volumen anterior no tendrá `agentlab_test`; se arregla con `docker compose down -v`.
 - R5a. **TD-013 (LOW):** la app se conecta como superusuario. Se paga en TASK-037.
 - R5b. **TD-014 (LOW):** `ollama` corre como root. Se paga en TASK-021.
-- R6. **`make validate` y el host.** Resuelto por la decisión humana y la decisión 12. Queda un riesgo menor: el montaje de solo lectura en `/src` sigue dejando visible `.env` dentro del contenedor de validación (como el comando de TASK-001), aunque la copia lo excluye y ninguna herramienta lo lee. Security lo revisa (R9).
+- R6. **`make validate` y el host.** Resuelto por la decisión humana y la decisión 12. Queda un riesgo menor: el montaje de solo lectura en `/src` sigue dejando visible `.env` dentro del contenedor de validación (como el comando de TASK-001), aunque la copia lo excluye y ninguna herramienta lo lee. Security lo revisa (R9). *Nota posterior:* en el ciclo 2, por decisión humana, el montaje se sustituyó por una copia filtrada por stdin, sin montar el repo, así que este riesgo ya no aplica. Ver «Desviaciones respecto al plan» en `docs/reports/TASK-003.md`.
 - R7. **Imagen de Ollama.** Pesa varios GB y en macOS no usa GPU. Sin `ollama pull` no hay inferencia local (OD-005).
 - R8. **Migraciones.** Hueco documentado; lo cierra TASK-005 con el servicio `migrate`.
 - R9. **Security tendrá que revisar:**

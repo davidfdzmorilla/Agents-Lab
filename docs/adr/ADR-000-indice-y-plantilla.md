@@ -19,6 +19,7 @@
 | ADR-007 | PostgreSQL como fuente de verdad; eventos con `seq` y `LISTEN/NOTIFY` | Accepted |
 | ADR-008 | Licencia Apache-2.0 | Proposed (se acepta en M5) |
 | ADR-009 | Ejecución de TypeScript en runtime con tsx | Accepted |
+| ADR-010 | `tsx` también en `packages/persistence` para `db:migrate` y `db:reset` | Accepted (2026-10-20; `tsx` dev de `persistence`, amplía ADR-009 §2) |
 
 ## Reglas
 
