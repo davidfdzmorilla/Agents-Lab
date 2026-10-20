@@ -18,7 +18,7 @@ DOCKER_NODE := docker run --rm -i --cap-drop ALL --security-opt no-new-privilege
 IN_COPY := mkdir -p /work && tar -C /work --no-same-owner -xf - && corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm install --frozen-lockfile
 
 help:               ## Lista los targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+	@set -o pipefail; grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 setup:              ## Instala git hooks y comprueba herramientas
 	git config core.hooksPath .githooks
@@ -41,14 +41,19 @@ up:                 ## Levanta db + worker (web desde TASK-007)
 up-local:           ## Igual, con Ollama (perfil local)
 	docker compose --profile local up --build -d
 
+# down/logs/ps never use the credentials, but compose interpolates the required (`:?`) variables
+# for every command. Filler is set per recipe only, and real values from the environment win.
+# up/up-local deliberately do not get it: they must keep failing without .env.
+COMPOSE_FILLER := POSTGRES_PASSWORD="$${POSTGRES_PASSWORD:-unused}" DATABASE_URL="$${DATABASE_URL:-unused}"
+
 down:               ## Para y elimina contenedores (conserva volúmenes)
-	docker compose --profile '*' down
+	$(COMPOSE_FILLER) docker compose --profile '*' down
 
 logs:               ## Sigue los logs
-	docker compose --profile '*' logs -f --tail=100
+	$(COMPOSE_FILLER) docker compose --profile '*' logs -f --tail=100
 
 ps:                 ## Estado de los servicios
-	docker compose --profile '*' ps
+	$(COMPOSE_FILLER) docker compose --profile '*' ps
 
 test:               ## Tests del monorepo en contenedor node fijado (M0: sin base de datos)
 	@docker volume create $(PNPM_STORE_VOLUME) >/dev/null

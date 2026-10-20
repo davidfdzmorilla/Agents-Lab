@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-20 (cierre TASK-003) |
+| Última actualización | 2026-10-20 (cierre TASK-003-fix-1) |
 | Hito actual | M0 |
 | Tareas READY | TASK-005, TASK-010, TASK-012 |
 
@@ -73,6 +73,17 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Target `make validate` con el comando de validación en Docker `node:22` y store de pnpm en volumen con nombre (TD-008).
   - `tsx` 4.23.15 declarado en `dependencies` de `apps/worker`; `docker/worker.Dockerfile` ejecuta `tsx src/index.ts` (ADR-009).
   - Apagado limpio del worker provisional: `docker compose stop worker` hace que el contenedor termine en < `SHUTDOWN_GRACE_MS` con código 0 (`stop_grace_period` > `SHUTDOWN_GRACE_MS`). El apagado del worker real se verifica en TASK-008.
+
+### TASK-003-fix-1 · make down/logs/ps funcionan sin .env
+- **Estado**: DONE · **Owner**: devops · **Depende de**: TASK-003 · **Referencia**: TASK-003 (decisión B)
+- **Scope**: `Makefile`
+- **Contexto**: compose interpola `${POSTGRES_PASSWORD:?}` y `${DATABASE_URL:?}` en todos los comandos, incluido `down`. En un checkout sin `.env`, `make down` falla con "required variable POSTGRES_PASSWORD is missing a value" y no se puede parar lo que se levantó. Reproducido por el humano el 2026-10-20.
+- **DoD**:
+  - `make down`, `make logs` y `make ps` terminan con código 0 en un checkout limpio sin `.env` (exportan valores de relleno para las variables obligatorias solo para esos targets).
+  - `make up` y `make up-local` siguen fallando sin `.env` con el mensaje actual.
+  - `make help` lleva `set -o pipefail;` como el resto de recetas con tubería, o el comentario de `Makefile:3` deja de decir "each piped recipe". Elige lo primero.
+  - Probado en macOS (make 3.81) y en el contenedor Linux; salida literal en el informe.
+- **Verificación**: tester + reviewer. security no aplica (no cambia superficie).
 
 ### TASK-004 · packages/core: esquemas Zod, errores tipados, env
 - **Estado**: DONE · **Owner**: core-dev (paso 0: devops) · **Depende de**: TASK-001 · **security REQUIRED** (decisión humana)
@@ -387,3 +398,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-20 | TASK-003: decisión humana (a) — corrección de una línea fuera de ciclo: `set -o pipefail;` en las recetas de `make test`/`make validate`, fuera `.SHELLFLAGS`, comentario sobre make 3.81. Verificación acotada a ese diff. |
 | 2026-10-20 | TASK-003: corrección fuera de ciclo verificada — tester PASS (fichero ilegible → exit 2 en `test` y `validate`; repo real exit 0); reviewer APPROVED (1 NIT sin acción: `help` con tubería sin pipefail); security APPROVED. → REVIEW, lista para `/close-task`. |
 | 2026-10-20 | TASK-003 → DONE (tester PASS, reviewer APPROVED, security APPROVED; ciclos 1, 2 y 3 más una corrección fuera de ciclo autorizada por el humano). Informe en docs/reports/TASK-003.md. TASK-005 → READY (depende de TASK-003 y TASK-004, ambas DONE). TD-008 PAID. Reglas añadidas: DEVELOPMENT_WORKFLOW §3 regla 1, AGENTS.md §3 (docs-keeper edita `.claude/skills/**`) y testing-conventions regla 10. |
+| 2026-10-20 | TASK-003 commit 802fdee |
+| 2026-10-20 | TASK-003-fix-1 creada por decisión humana (make down/logs/ps sin `.env`; `help` con pipefail); sin plan del architect por decisión humana. → IN_PROGRESS (devops). |
+| 2026-10-20 | TASK-003-fix-1: IMPLEMENTATION recibido (citas verificadas por el Orchestrator). Incidencia de proceso: devops esquivó un bloqueo de bash-guard ("no se imprimen variables de entorno con secretos") construyendo el nombre de la variable dinámicamente en un script de prueba; sin exposición de secretos (valores de prueba `unused`/`real` en contenedor aislado). Pendiente de decisión humana antes de `/verify-task`. |
+| 2026-10-20 | TASK-003-fix-1: decisión humana (b) — la evidencia obtenida con la evasión no vale; devops repite la prueba de Linux sin rodeos (lo no probable queda como limitación). Regla nueva en AGENTS.md §4 (docs-keeper): un bloqueo de hook se cita y se para; una evasión invalida la evidencia de la fase. Hooks corregidos por el humano (7f06509: Write/Edit en el scratchpad permitidos). |
+| 2026-10-20 | TASK-003-fix-1: devops repite pruebas sin rodeos (macOS y Linux; limitaciones documentadas); tester PASS (pruebas propias; 1 bloqueo citado y parado); reviewer APPROVED (1 NIT opcional en el comentario de Makefile:45). → REVIEW, lista para `/close-task`. |
+| 2026-10-20 | TASK-003-fix-1 → DONE (tester PASS, reviewer APPROVED, security no aplica por decisión humana; sin plan del architect). Informe en docs/reports/TASK-003-fix-1.md. Sin deuda nueva. Desbloqueadas: ninguna. |

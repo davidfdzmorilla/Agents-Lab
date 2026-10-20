@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Versión | 1.0 (2026-10-20) |
+| Versión | 1.1 (2026-10-20) — §4: añadida garantía de no evasión de hooks (decisión humana) |
 | Jerarquía | ADR > SPEC > ARCHITECTURE > **AGENTS + WORKFLOW** > ROADMAP > TASKS |
 
 > Este documento describe **cómo se construye AgentLab con Claude Code**. No confundir con los agentes del producto (Manager, Researcher, Analyst, Writer, Critic, Evaluator), que viven en `packages/agents` y se describen en `TECHNICAL_SPEC.md §4`.
@@ -59,6 +59,7 @@ Elección de modelos: Opus donde el juicio importa (diseño, revisión, orquesta
 | Sin atribución a IA en commits | `attribution` vacío en `settings.json` + `hooks/bash-guard.sh` rechaza `git commit` con `Co-Authored-By`, `Claude`, `Anthropic`, `Generated with` + `.githooks/commit-msg` (tercera barrera, vale para commits manuales) |
 | Commit solo con tarea DONE | `bash-guard.sh` solo permite `git commit` si `.claude/task-scope.json` tiene `"commit_allowed": true`, que únicamente escribe el Orquestador en `/commit` tras los veredictos |
 | Dependencias sin aprobación | `bash-guard.sh` bloquea `pnpm add`, `pnpm install <pkg>`, `npm i <pkg>` salvo que el TASK PACKET las liste en `task-scope.json → deps_allowed` |
+| Un bloqueo de hook se cita y se para; nunca se rodea, tampoco en el scratchpad ni escribiendo por Bash lo que Write no deja. Una evasión detectada invalida la evidencia de esa fase y la fase se repite. | Prompt de cada subagente («nunca intentes rodearlo») + revisión del Orchestrator de los informes; los hooks (`bash-guard`, `role-guard`, `scope-guard`) bloquean y el agente cita el bloqueo literal en su informe |
 
 Si un hook bloquea algo que el flujo necesitaba, **el hook tiene razón**: se corrige el TASK PACKET o el scope, no el hook. Cambiar un hook requiere aprobación humana y un ADR si cambia una garantía.
 
