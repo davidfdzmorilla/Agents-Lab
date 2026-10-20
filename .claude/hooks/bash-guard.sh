@@ -49,8 +49,11 @@ fi
 
 # ---- git commit ---------------------------------------------------------------------
 if printf '%s' "$flat" | grep -Eq '(^|[;&| ])git[[:space:]]+commit([[:space:]]|$)'; then
-  printf '%s' "$flat" | grep -Eq -- '--no-verify|-n([[:space:]]|$)' && block "git commit --no-verify está prohibido"
-  printf '%s' "$flat" | grep -Eq -- '--amend' && block "git commit --amend está prohibido; crea un commit nuevo"
+  # Flags del propio git commit: se miran en el segmento saneado (sin heredoc ni cadenas),
+  # solo en el tramo "git commit … --" (lo que va después de -- son rutas).
+  commit_opts="$(printf '%s' "$sanitized" | tr '\n' ' ' | sed -E 's/.*(^|[;&| ])git[[:space:]]+commit//' | sed -E 's/[[:space:]]--([[:space:]]|$).*//' | sed -E 's/[;&|].*//')"
+  printf '%s' "$commit_opts" | grep -Eq -- '(^|[[:space:]])(--no-verify|-n|-[a-zA-Z]*n[a-zA-Z]*)([[:space:]]|$)' && block "git commit --no-verify está prohibido"
+  printf '%s' "$commit_opts" | grep -Eq -- '(^|[[:space:]])--amend([[:space:]]|$)' && block "git commit --amend está prohibido; crea un commit nuevo"
   # Se revisa el texto del mensaje (-m, heredoc), no las rutas del comando: un fichero en
   # /tmp/claude-*/ o una mención a .claude/ no son atribución. Los mensajes pasados con
   # -F <fichero> no son visibles aquí; para ellos vale .githooks/commit-msg.
