@@ -52,7 +52,8 @@ segs="$flat"; segs="${segs//&&/$'\n'}"; segs="${segs//||/$'\n'}"; segs="${segs//
 printf '%s\n' "$segs" | while IFS= read -r seg; do
   printf '%s' "$seg" | grep -Eq "$deps_re" || continue
   deps_allowed="$(scope_get deps_allowed)"
-  pkgs="$(printf '%s' "$seg" | sed -E "s/$deps_re//" | tr ' ' '\n' | grep -v '^-' | grep -v '^$' | sed -E 's/(.)@[^@/]+$/\1/')"
+  # Se descartan flags y todo lo que sea una redirección (2>&1, > fichero, < fichero) y su destino.
+  pkgs="$(printf '%s' "$seg" | sed -E "s/$deps_re//" | sed -E 's/[0-9]*[<>]&?[0-9]*[[:space:]]*[^[:space:]]*//g' | tr ' ' '\n' | grep -v '^-' | grep -v '^$' | sed -E 's/(.)@[^@/]+$/\1/')"
   for name in $pkgs; do
     if ! printf '%s\n' "$deps_allowed" | grep -Fxq "$name"; then
       printf 'BLOCKED by %s: dependencia %s no autorizada en el TASK PACKET (deps_allowed). Repórtala en el informe; el humano decide.\n' "$HOOK_NAME" "'$name'" >&2
@@ -60,6 +61,50 @@ printf '%s\n' "$segs" | while IFS= read -r seg; do
     fi
   done
 done || exit 2
+
+# ---- escrituras por shell dentro de un scope activo ----------------------------------
+# scope-guard solo ve Edit/Write. Con una tarea activa, las escrituras por shell (sed -i, tee, cp,
+# mv, rm, touch, truncate y redirecciones > >>) solo pueden apuntar a rutas del scope.
+# Sin tarea activa (allow = ["*"]) no se aplica.
+allow_scope="$(scope_get allow)"
+if [ -n "$allow_scope" ] && [ "$allow_scope" != "*" ]; then
+  targets=""
+  segs2="$flat"; segs2="${segs2//&&/$'\n'}"; segs2="${segs2//||/$'\n'}"; segs2="${segs2//;/$'\n'}"; segs2="${segs2//|/$'\n'}"
+  while IFS= read -r seg; do
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    # redirecciones: destino tras > o >>
+    for tgt in $(printf '%s' "$seg" | grep -oE '[0-9]*>>?[[:space:]]*[^[:space:];&|]+' | sed -E 's/^[0-9]*>>?[[:space:]]*//'); do
+      targets="$targets $tgt"
+    done
+    case "$seg" in
+      sed\ *) printf '%s' "$seg" | grep -Eq '(^|[[:space:]])-[a-zA-Z]*i' && targets="$targets $(printf '%s' "$seg" | tr ' ' '\n' | tail -n +2 | grep -Ev "^(-|'|\")" | tail -n 1)" ;;
+      tee\ *) targets="$targets $(printf '%s' "$seg" | tr ' ' '\n' | tail -n +2 | grep -v '^-')" ;;
+      cp\ *|mv\ *) targets="$targets $(printf '%s' "$seg" | tr ' ' '\n' | grep -v '^-' | tail -n 1)" ;;
+      rm\ *|touch\ *|truncate\ *|mkdir\ *) targets="$targets $(printf '%s' "$seg" | tr ' ' '\n' | tail -n +2 | grep -v '^-')" ;;
+    esac
+  done <<EOF2
+$segs2
+EOF2
+  for tgt in $targets; do
+    tgt="${tgt%\"}"; tgt="${tgt#\"}"; tgt="${tgt%\'}"; tgt="${tgt#\'}"
+    case "$tgt" in
+      /dev/null|/dev/stderr|/dev/stdout|/tmp/*|/private/tmp/*|/var/folders/*|"${TMPDIR:-/nonexistent}"*|'&'*|[0-9]) continue ;;
+    esac
+    case "$tgt" in
+      /*) rel="$tgt" ;;
+      *) rel="$ROOT/$tgt" ;;
+    esac
+    rel="$(python3 -I -c 'import os,sys;print(os.path.normpath(sys.argv[1]))' "$rel" 2>/dev/null || printf '%s' "$rel")"
+    case "$rel" in
+      "$ROOT"/*) rel="${rel#"$ROOT"/}" ;;
+      *) block "escritura fuera del repositorio: $tgt" ;;
+    esac
+    case "$rel" in
+      .claude/task-scope.json|node_modules/*|*/node_modules/*|.turbo/*|*/.turbo/*|dist/*|*/dist/*|.next/*|*/.next/*|coverage/*|*/coverage/*|.pnpm-store/*|.pnpm-store) continue ;;
+    esac
+    any_match "$rel" <<< "$allow_scope" || block "escritura por shell en '$rel' fuera del scope de la tarea. Usa Edit/Write dentro del scope o repórtalo."
+  done
+fi
 
 # ---- secretos -----------------------------------------------------------------------
 if printf '%s' "$flat" | grep -Eq '(^|[;&| ])(cat|less|more|head|tail|bat|sed|awk|grep|rg|source|\.)[[:space:]]+[^;&|]*\.env([[:space:]]|$|\.)' && ! printf '%s' "$flat" | grep -Eq '\.env\.example'; then

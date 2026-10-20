@@ -21,8 +21,11 @@ case "$rel" in
   .claude/settings.json|.claude/hooks/*|.githooks/*) block "cambiar hooks o settings requiere aprobación humana fuera del flujo (ADR-006)" ;;
 esac
 
-# Siempre permitido: el fichero de scope (solo lo escribe el Orchestrator; role-guard lo restringe por rol).
-[ "$rel" = ".claude/task-scope.json" ] && exit 0
+# Siempre permitido, con o sin tarea activa: el fichero de scope y la contabilidad del flujo
+# (TASKS.md, deuda, informes). Quién puede escribirlos lo decide role-guard, no el scope.
+case "$rel" in
+  .claude/task-scope.json|docs/TASKS.md|docs/TECHNICAL_DEBT.md|docs/reports/*) exit 0 ;;
+esac
 
 task="$(scope_get task)"
 allow="$(scope_get allow)"

@@ -28,6 +28,10 @@ if printf '{"tool_name":"Write","tool_input":{"file_path":"%s/packages/core/src/
 if printf '{"tool_name":"Write","tool_input":{"file_path":"%s/packages/core/src/schemas.ts"}}' "$root" | bash "$root/.claude/hooks/role-guard.sh" devops 2>/dev/null; then bad "role-guard permitió código de core a devops"; else ok "role-guard bloquea código de core a devops"; fi
 if printf '{"tool_name":"Bash","tool_input":{"command":"pnpm add lodash"}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then bad "permitió dependencia no autorizada"; else ok "bloquea dependencia no autorizada"; fi
 
+if printf '{"tool_name":"Edit","tool_input":{"file_path":"%s/docs/TASKS.md"}}' "$root" | bash "$root/.claude/hooks/scope-guard.sh" 2>/dev/null; then ok "scope-guard permite TASKS.md con tarea activa"; else bad "scope-guard bloqueó TASKS.md con tarea activa"; fi
+if printf '{"tool_name":"Bash","tool_input":{"command":"sed -i s/a/b/ apps/web/page.tsx"}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then bad "permitió sed -i fuera de scope"; else ok "bloquea sed -i fuera de scope"; fi
+if printf '{"tool_name":"Bash","tool_input":{"command":"pnpm install 2>&1"}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then ok "no confunde 2>&1 con un paquete"; else bad "trató 2>&1 como paquete"; fi
+
 echo "3) bash-guard: git"
 if printf '{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then bad "permitió git push"; else ok "bloquea git push"; fi
 if printf '{"tool_name":"Bash","tool_input":{"command":"git commit -m \\"feat(core): x\\""}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then bad "permitió commit sin commit_allowed"; else ok "bloquea commit sin commit_allowed"; fi
