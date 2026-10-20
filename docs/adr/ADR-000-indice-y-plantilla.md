@@ -11,7 +11,7 @@
 | ADR | Título | Estado |
 |---|---|---|
 | ADR-001 | Monorepo pnpm + Turborepo con paquetes por responsabilidad | Accepted |
-| ADR-002 | LangGraph.js como motor de grafos con checkpointer PostgreSQL | Proposed (versiones pendientes, OD-001) |
+| ADR-002 | LangGraph.js como motor de grafos con checkpointer PostgreSQL | Accepted |
 | ADR-003 | Capa de proveedores: interfaz común + adaptadores (OpenAI-compatible, Gemini) | Accepted |
 | ADR-004 | Worker único sobre tabla `runs`; sin cola externa en v1 | Accepted |
 | ADR-005 | Presupuesto interno comprobado antes de cada llamada | Accepted |

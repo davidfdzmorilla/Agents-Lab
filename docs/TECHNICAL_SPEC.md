@@ -93,7 +93,7 @@ Detalle de capas, flujos y contratos en `ARCHITECTURE.md`.
 
 **Sin cola externa en v1.** Un worker Node.js separado del servidor web reclama ejecuciones de la tabla `runs` (`SELECT … FOR UPDATE SKIP LOCKED`). Cuando haga falta más de un worker, reintentos distribuidos o volumen alto, se incorporará una cola específica (ADR-004).
 
-Versiones concretas de dependencias: **OPEN DECISION OD-001** — las fija el `architect` en M0 tras comprobar compatibilidad LangGraph.js ↔ checkpointer PostgreSQL ↔ Drizzle; se documentan en `ARCHITECTURE.md §9`.
+Versiones concretas de dependencias: fijadas en `ARCHITECTURE.md §9` con su compatibilidad verificada en ADR-002 (Accepted; OD-001 resuelta en TASK-002).
 
 ## 4. Motor multiagente
 
@@ -325,9 +325,22 @@ Decisiones que la especificación **no** fija. Los agentes de desarrollo no las 
 
 | ID | Decisión pendiente | Quién decide | Cuándo |
 |---|---|---|---|
-| OD-001 | Versiones concretas de LangGraph.js, checkpointer PostgreSQL, Drizzle, Next.js | architect → humano | M0 (TASK-002) |
+| OD-001 | ~~Versiones concretas de LangGraph.js, checkpointer PostgreSQL, Drizzle, Next.js~~ **RESUELTA (2026-10-20, TASK-002)**: `@langchain/langgraph 1.5.1`, `@langchain/langgraph-checkpoint 1.2.0`, `@langchain/langgraph-checkpoint-postgres 1.1.0` (`PostgresSaver`, esquema `langgraph`), `@langchain/core 1.2.18`, `drizzle-orm 0.45.4`, `drizzle-kit 0.31.11`, `pg 8.23.1` (driver único), `next 16.4.2`. Tabla y razones en ARCHITECTURE §9; compatibilidad y fuentes (npm registry, GitHub Releases langgraphjs #2961, docs de Route Handlers de Next.js) en ADR-002 (Accepted) | architect → humano | M0 (TASK-002) |
 | OD-002 | Valores de los límites de tokens/contexto/herramientas/longitud/profundidad | humano | M1 (antes de TASK-013) |
 | OD-003 | Autenticación de la API si se expone públicamente | humano | M5 |
 | OD-004 | Plataforma de CI (GitLab CI vs GitHub Actions) | humano | M0 (TASK-006) |
 | OD-005 | Modelo local por defecto para Ollama en `compose.yaml` (tamaño vs calidad) | humano | M2 |
 | OD-006 | Modelo de persistencia de artefactos (tabla `artifacts` vs columna JSON en `tasks`) | architect → humano | M4 |
+| OD-007 | Ejecución de TypeScript en runtime (`apps/worker` y consumo de paquetes que exportan `.ts`): `tsx`, bundle o type stripping de Node | architect → humano | M0, antes de TASK-003 (bloquea TASK-003 y TASK-008; no TASK-001) |
+
+### OD-007 — Propuesta (`PROPUESTA — pendiente de decisión humana`)
+
+Contexto: `tsconfig.base.json` usa `module: ESNext` + `moduleResolution: bundler` + `verbatimModuleSyntax` (imports relativos sin extensión) y los paquetes exportan `./src/index.ts` sin build (plan de TASK-001). `apps/web` no está afectada: Turbopack transpila automáticamente los paquetes del workspace ([`transpilePackages`](https://nextjs.org/docs/app/api-reference/config/next-config-js/transpilePackages), lastUpdated 2026-05-27); Vitest y drizzle-kit cargan TS por sí mismos. El problema es arrancar `apps/worker` (dev, contenedor de TASK-003 y proceso hijo del test de TASK-008). Versiones consultadas con `npm view` el 2026-10-20.
+
+| Opción | Dependencias | Pros | Contras |
+|---|---|---|---|
+| (a) `tsx` en dev y en runtime: `node --import tsx src/index.ts` | `tsx 4.23.15` (2026-09-20; trae `esbuild ~0.28.0`) en `apps/worker`; uso `--import` documentado en [tsx/docs/dev-api/node-cli.md](https://github.com/privatenumber/tsx/blob/master/docs/dev-api/node-cli.md) | Sin cambios en `tsconfig` ni en imports; resuelve imports sin extensión y `exports` a `.ts` del workspace; mismo comando en dev, test y Docker; con `--import` no hay proceso envoltorio, así que `SIGTERM` llega directo al worker | Transpilador (esbuild, binario nativo) dentro de la imagen de producción; coste de arranque; no comprueba tipos (`tsc --noEmit` sigue en CI) |
+| (b) Bundle del worker a JS (`esbuild --bundle --platform=node --format=esm`, dependencias de terceros externas, paquetes `@agentlab/*` incluidos) | `esbuild 0.28.2` (2026-08-08) o `tsup 9.0.0` (2026-10-14, exige Node `^22.18.0`); para dev además `tsx` o `node --watch` sobre el bundle | La imagen ejecuta `node dist/index.js` sin TS en runtime; encaja con `moduleResolution: bundler` (el nombre lo dice); `turbo build` pasa a tener sentido real | Paso de build y sourcemaps que mantener; dev y prod ejecutan artefactos distintos; probablemente dos dependencias |
+| (c) Type stripping nativo de Node (activo por defecto desde 22.18.0, sin aviso; [docs Node 22](https://nodejs.org/docs/latest-v22.x/api/typescript.html), consultadas 2026-10-20) | Ninguna; exige fijar Node `>=22.18` en `.nvmrc`/Dockerfiles | Cero dependencias; ejecuta exactamente el fuente | Estabilidad 1.2 (*release candidate*); exige extensión `.ts` en **todos** los imports relativos → cambiar `tsconfig` (`allowImportingTsExtensions` o `rewriteRelativeImportExtensions`, `erasableSyntaxOnly`) y reescribir la convención de TASK-001; sin `enum`, *parameter properties* ni `namespace` con valores; no lee `tsconfig`; rechaza `.ts` bajo `node_modules` (los enlaces de pnpm se resuelven a `packages/*` por realpath, pero hay que verificarlo) |
+
+**Recomendación del architect: (a) `tsx 4.23.15`**, exacta, como dependencia de `apps/worker`, invocada como `node --import tsx`. Es la única opción que no cambia la convención de módulos ya aprobada en TASK-001 y usa un solo comando en dev, test y contenedor. (c) queda como vía de migración cuando el type stripping sea estable, y (b) si el tamaño o el arranque de la imagen llegan a importar. La decisión final se registrará en un ADR antes de TASK-003 (encargo aparte) y requiere añadir `tsx` a `deps_allowed`.

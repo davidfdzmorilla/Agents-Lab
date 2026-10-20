@@ -146,7 +146,7 @@ Discriminated union `RunEvent` con `type`, `runId`, `seq`, `ts`, `payload`. `seq
   - `decide.review` — arista condicional: `pass → persist`, `fail && iteration < max → replan`, `fail && iteration >= max → persist(partial)`.
   - `approval.wait` — `interrupt()` de LangGraph; el run pasa a `awaiting_approval`; `POST /resume` reanuda desde checkpoint.
   - `persist.result` — escribe resultado y métricas, emite `run.completed|partial`.
-- **Checkpointer**: `PostgresSaver` (o equivalente, OD-001) con `thread_id = runId`. `run_checkpoints` guarda `(run_id, checkpoint_id, step, created_at)` para listar y reanudar.
+- **Checkpointer**: `PostgresSaver` (`@langchain/langgraph-checkpoint-postgres`, esquema `langgraph`; ADR-002) con `thread_id = runId`. `run_checkpoints` guarda `(run_id, checkpoint_id, step, created_at)` para listar y reanudar.
 - **Cancelación**: `POST /cancel` marca `runs.cancel_requested = true`; cada nodo comprueba la bandera al inicio y el `AbortSignal` se propaga a proveedores y herramientas. Estado final `cancelled` + evento.
 - **Recuperación tras caída del worker**: al arrancar, el worker busca runs `running` cuyo `worker_heartbeat_at` haya caducado (> 60 s), los marca `queued` y los reanuda desde el último checkpoint. Un run reanudado emite `run.resumed` y conserva su `seq`.
 
@@ -168,7 +168,9 @@ Estados terminales: `completed`, `partial`, `failed`, `cancelled`. Un run termin
 
 ## 6. Modelo de datos (esquema Drizzle)
 
-Columnas obligatorias en todas las tablas: `id uuid pk default gen_random_uuid()`, `created_at timestamptz`, `updated_at timestamptz`.
+Columnas obligatorias en todas las tablas gestionadas por Drizzle (esquema `public`): `id uuid pk default gen_random_uuid()`, `created_at timestamptz`, `updated_at timestamptz`.
+
+Excepción: las tablas del checkpointer en el esquema `langgraph` (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, `checkpoint_migrations`) no siguen esta regla ni figuran en la tabla siguiente: las crea y migra `setup()` de `PostgresSaver`, no Drizzle (ADR-002).
 
 | Tabla | Columnas clave | Notas |
 |---|---|---|
@@ -206,9 +208,24 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 |---|---|---|
 | Node.js | 22 LTS | `.nvmrc`, Dockerfiles |
 | pnpm | 9.x | `packageManager` en `package.json` |
-| TypeScript | 5.x strict | `tsconfig.base.json` |
+| TypeScript | 5.x strict (`5.9.3`, con `@types/node` 22.x) | `tsconfig.base.json` |
 | PostgreSQL | 16 | `compose.yaml` |
-| LangGraph.js / checkpointer / Drizzle / Next.js | **OD-001** | TASK-002 |
+
+Dependencias de runtime fijadas por OD-001 (TASK-002, ADR-002, verificadas con `npm view` el 2026-10-20). Versión exacta, sin `^`, idéntica en todos los workspaces que la usen.
+
+| Paquete | Versión | Workspace | Razón |
+|---|---|---|---|
+| `@langchain/langgraph` | `1.5.1` | `orchestrator` | Última estable; orden determinista de escrituras paralelas (1.5.0) y fixes de reanudación de interrupciones paralelas (1.5.1) |
+| `@langchain/langgraph-checkpoint` | `1.2.0` | `persistence`, `orchestrator` | Peer del checkpointer y dependencia de langgraph 1.5.1 (`^1.2.0`); `1.2.0` exacta en todo workspace que la resuelva, una sola instancia en el monorepo |
+| `@langchain/langgraph-checkpoint-postgres` | `1.1.0` | `persistence` (desde TASK-005: `setup()` en `pnpm db:migrate`) | `PostgresSaver` del mismo release coordinado que langgraph 1.5.0 / checkpoint 1.2.0; tablas propias vía `setup()` en el esquema `langgraph` |
+| `@langchain/core` | `1.2.18` | `orchestrator`, `persistence` | Satisface los peers `^1.1.48` (langgraph, checkpoint) y `^1.1.44` (checkpoint-postgres) |
+| `drizzle-orm` | `0.45.4` | `persistence` | Última estable (1.0 sigue en rc); driver `drizzle-orm/node-postgres` |
+| `drizzle-kit` | `0.31.11` | `persistence` (dev) | Pareja estable de drizzle-orm 0.45.x |
+| `pg` | `8.23.1` | `persistence` | Driver PostgreSQL único: Drizzle, `PostgresSaver` (solo admite `pg`, peer `^8.12.0`) y `LISTEN/NOTIFY` |
+| `@types/pg` | `8.23.1` | `persistence` (dev) | Tipos de `pg` |
+| `next` | `16.4.2` | `web` | Última estable; Node ≥20.9, TS ≥5.1; Route Handlers con `ReadableStream` para SSE |
+
+Compatibilidad: peers verificados con `npm view` y release coordinado langgraphjs #2961 (2026-10-12); fuentes en ADR-002. `@langchain/langgraph-checkpoint` y `@langchain/core` resuelven a una sola versión exacta (`1.2.0` y `1.2.18`) en `persistence` y `orchestrator`: TASK-013 elige el mecanismo (declaración exacta en ambos `package.json` o `pnpm.overrides` en la raíz) y TASK-023 lo comprueba con `pnpm why`. `zod` se fija en TASK-004 y `react`/`react-dom`/`tailwindcss` en TASK-007 (no decididas aún). Subir cualquiera de estas versiones es una tarea propia que vuelve a verificar la compatibilidad.
 
 ## 10. Convenciones de código
 

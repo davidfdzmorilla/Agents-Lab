@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Versión | 1.0 (2026-10-20) |
+| Versión | 1.1 (2026-10-20) |
 | Jerarquía | ADR > SPEC > ARCHITECTURE > **AGENTS + WORKFLOW** > ROADMAP > TASKS |
 
 ## 1. Principio rector
@@ -32,6 +32,7 @@ El comando `/status` ejecuta exactamente esto y devuelve un resumen de ≤ 15 l�
 8. **Sin secretos jamás** en código, tests, fixtures, docs, mensajes de commit ni informes. Los tests usan `FakeProvider` o variables de entorno leídas en runtime.
 9. **Tests contra PostgreSQL real**, nunca SQLite ni mocks del ORM para repositorios.
 10. **Informes, no volcados.** Un subagente devuelve el informe estructurado de §5; nunca pega ficheros enteros ni logs completos (máx. 30 líneas de log relevante).
+11. **Validación del architect fuera del repo.** El architect puede validar en un directorio temporal fuera del repo y debe decirlo en el informe PLAN; dentro del repo, nunca sin `deps_allowed`.
 
 ## 4. TASK PACKET
 

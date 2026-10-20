@@ -4,7 +4,7 @@
 |---|---|
 | Última actualización | 2026-10-20 (creación) |
 | Hito actual | M0 |
-| Tareas READY | TASK-001, TASK-002 |
+| Tareas READY | — (TASK-001 IN_PROGRESS) |
 
 ## Cómo se lee este documento
 
@@ -22,18 +22,22 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ## M0 — Base
 
 ### TASK-001 · Monorepo pnpm + Turborepo + TypeScript estricto
-- **Estado**: READY · **Owner**: devops · **Depende de**: —
-- **Scope**: `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.nvmrc`, `.eslintrc.cjs`, `.prettierrc`, `.editorconfig`, `.gitignore`, `apps/web/package.json`, `apps/worker/package.json`, `packages/core/package.json`, `packages/persistence/package.json`, `Makefile`
+- **Estado**: IN_PROGRESS · **Owner**: devops · **Depende de**: —
+- **Scope**: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.nvmrc`, `.npmrc`, `eslint.config.js`, `.prettierrc`, `.editorconfig`, `.gitignore`, `apps/web/package.json`, `apps/worker/package.json`, `packages/core/package.json`, `packages/persistence/package.json`, `apps/*/tsconfig.json`, `packages/*/tsconfig.json`, `apps/*/src/index.ts`, `packages/*/src/index.ts`, `Makefile`
+- **Dependencias autorizadas** (solo devDependencies en la raíz, última estable al instalar, fijadas sin `^`): `typescript`, `turbo`, `eslint`, `@eslint/js`, `typescript-eslint`, `prettier`, `eslint-config-prettier`, `@types/node`.
 - **DoD**:
   - `pnpm install` en limpio sin warnings de peer deps.
   - `pnpm -r typecheck` y `pnpm -r lint` pasan con los cuatro workspaces vacíos (un `index.ts` cada uno).
   - `tsconfig.base.json` con `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `moduleResolution: bundler`, ESM.
-  - Regla ESLint `no-restricted-imports` que prohíbe `@agentlab/*/src/*`.
+  - ESLint última major estable, flat config (`eslint.config.js`); regla `no-restricted-imports` que prohíbe `@agentlab/*/src/*`.
+  - Versiones exactas de las devDependencies fijadas sin `^` en `package.json` y listadas en el informe (última estable compatible con ARCHITECTURE §9 y con los peers del resto: TypeScript 5.9.3, `@types/node` 22).
+  - `.npmrc` con `engine-strict=true` y `engines` en `package.json` (node 22, pnpm 9.15.9): la instalación con otra versión de Node falla.
+  - Validación hecha con Node 22 (nvm o contenedor), nunca con el Node de la máquina si no es 22.
   - `turbo.json` con pipelines `build`, `lint`, `typecheck`, `test` y dependencias `^build`.
 
 ### TASK-002 · Resolver OD-001: versiones de LangGraph.js, checkpointer PostgreSQL, Drizzle, Next.js
-- **Estado**: READY · **Owner**: architect · **Depende de**: —
-- **Scope**: `docs/ARCHITECTURE.md` (§9), `docs/adr/ADR-002-*.md`, `docs/TECHNICAL_SPEC.md` (§13 únicamente)
+- **Estado**: DONE · **Owner**: architect · **Depende de**: —
+- **Scope**: `docs/ARCHITECTURE.md` (§4, §6, §9), `docs/adr/ADR-002-*.md`, `docs/adr/ADR-000-indice-y-plantilla.md` (índice), `docs/TECHNICAL_SPEC.md` (§3 y §13 únicamente)
 - **DoD**:
   - Tabla de versiones en `ARCHITECTURE.md §9` con la versión exacta y la razón.
   - Verificado que el checkpointer PostgreSQL elegido es compatible con la versión de LangGraph.js elegida (enlace a la documentación o al changelog).
@@ -42,7 +46,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - OD-001 marcada como resuelta en SPEC §13.
 
 ### TASK-003 · Docker Compose: web, worker, db (+ perfil local con ollama)
-- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-001
+- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-001, OD-007
 - **Scope**: `compose.yaml`, `compose.override.example.yaml`, `docker/web.Dockerfile`, `docker/worker.Dockerfile`, `docker/postgres/init.sql`, `.env.example`, `.dockerignore`, `Makefile`
 - **DoD**:
   - `docker compose up --build` levanta `db`, `web`, `worker`; `db` solo en red interna; `web` en `3000`.
@@ -51,6 +55,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `init.sql` crea bases `agentlab` y `agentlab_test`.
   - `.env.example` sin ningún valor secreto; todas las variables documentadas en una línea.
   - `make up`, `make down`, `make logs`, `make test` funcionan.
+  - `TURBO_TELEMETRY_DISABLED=1` en `Makefile` y en ambos Dockerfiles.
 
 ### TASK-004 · packages/core: esquemas Zod, errores tipados, env
 - **Estado**: BLOCKED · **Owner**: core-dev · **Depende de**: TASK-001
@@ -63,11 +68,14 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Estados de run y transiciones válidas como función pura `canTransition(from, to)` con test exhaustivo (tabla de `ARCHITECTURE.md §5`).
   - Cobertura de tests ≥ 90 % en `core`.
   - Cero dependencias de runtime salvo `zod`.
+  - Versión exacta de `zod` compatible con los rangos de `@langchain/langgraph` 1.5.1 (`^3.25.32 || ^4.2.0`) y `@langchain/core` 1.2.18 (`^3.25.76 || ^4`), fijada sin `^` (ADR-002).
 
 ### TASK-005 · packages/persistence: Drizzle, migración inicial, repositorios base
-- **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-003, TASK-004
+- **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-003, TASK-004 · **security REQUIRED**
 - **Scope**: `packages/persistence/**`, `drizzle.config.ts`
 - **DoD**:
+  - `drizzle.config.ts` con `schemaFilter: ["public"]`: Drizzle nunca genera ni aplica cambios sobre el esquema `langgraph` (ADR-002).
+  - `pnpm db:migrate` aplica las migraciones de Drizzle y, como paso explícito, ejecuta `setup()` del checkpointer de LangGraph sobre el esquema `langgraph` (ADR-002).
   - Esquema Drizzle con las 11 tablas de `ARCHITECTURE.md §6`, columnas obligatorias, índices y `unique(run_id, seq)`.
   - Migración `0000_init.sql` generada y aplicable con `pnpm db:migrate`; `pnpm db:reset` recrea `agentlab_test`.
   - `RunsRepository` (`create`, `get`, `claimNext` con `SKIP LOCKED`, `transition` que respeta `canTransition`, `heartbeat`), `EventsRepository` (`append` con `seq` atómico, `listSince(runId, seq)`), `ProjectsRepository`, `AgentDefinitionsRepository`.
@@ -83,9 +91,10 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - El pipeline falla si `pnpm audit --audit-level=high` reporta vulnerabilidades.
   - Job `secrets-scan` que ejecuta `scripts/ci/check-no-secrets.sh` (mismas reglas que `.githooks/pre-commit`).
   - Badge o enlace en README.
+  - `TURBO_TELEMETRY_DISABLED=1` en todos los jobs del pipeline.
 
 ### TASK-007 · apps/web: esqueleto Next.js + `GET /api/health`
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-005
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-005 · **security REQUIRED**
 - **Scope**: `apps/web/**`
 - **DoD**:
   - App Router, Tailwind, layout base, página `/` con texto "AgentLab" y enlace a `/projects`.
@@ -94,13 +103,14 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Test del handler con PostgreSQL arriba y abajo.
 
 ### TASK-008 · apps/worker: bucle de reclamación vacío con heartbeat y apagado limpio
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005, OD-007
 - **Scope**: `apps/worker/**`
 - **DoD**:
   - Bucle `claimNext` → ejecuta un `RunExecutor` inyectable (en M0: no-op que marca `completed`) → `finalize`.
   - Heartbeat cada 15 s mientras hay run activo.
   - `SIGTERM` espera al run actual hasta `SHUTDOWN_GRACE_MS` y sale con código 0.
   - Test: crear run `queued` en DB, arrancar worker en proceso hijo, verificar `completed` y heartbeat actualizado.
+  - Al arrancar, el worker comprueba que existe el esquema `langgraph`; si no, sale con código ≠ 0 y un mensaje claro que indica ejecutar `pnpm db:migrate` (ADR-002). Test del caso de fallo.
 
 ### TASK-009 · README con instalación desde cero + cierre de M0
 - **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-001…TASK-008
@@ -142,8 +152,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Test: cada `outputSchema` acepta el ejemplo canónico y rechaza tres variantes incorrectas.
 
 ### TASK-013 · packages/orchestrator: grafo `research` con LangGraph.js (sin checkpointer persistente)
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-010, TASK-011, TASK-012
-- **Scope**: `packages/orchestrator/**`
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-010, TASK-011, TASK-012 · **security REQUIRED**
+- **Scope**: `packages/orchestrator/**` (las viñetas de LangSmith en `.env.example` y `packages/core/src/env.ts` necesitan ampliar scope o repartirse con devops/core-dev al planificar)
 - **DoD**:
   - Nodos `gate.budget`, `agent.invoke`, `fanout.tasks`, `review`, `decide.review`, `persist.result` como `ARCHITECTURE.md §4`; `approval.wait` llega en M4.
   - `buildResearchGraph(deps)` recibe `providerRegistry`, `budgetGuard`, `eventEmitter`, `repositories` por inyección; cero singletons.
@@ -151,6 +161,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Cada nodo comprueba `cancelRequested` al entrar y emite el evento correspondiente.
   - Revisión `fail` dos veces → `partial` con `result.partialReason`.
   - Tests con `FakeProvider`: camino feliz, `partial` por iteraciones, `partial` por presupuesto, `failed` por error no recuperable, cancelación entre nodos.
+  - Trazado de LangSmith desactivado explícitamente: `LANGCHAIN_TRACING_V2=false` y sin `LANGCHAIN_API_KEY` en `.env.example`, validado en `core/env.ts`; test de que ninguna llamada sale hacia LangSmith con `FakeProvider`.
 
 ### TASK-014 · API: `POST /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/result`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-007, TASK-011
@@ -215,7 +226,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-023 · Checkpointer PostgreSQL + `run_checkpoints`
 - **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-013, TASK-002 · **Scope**: `packages/persistence/src/checkpointer/**`, `packages/orchestrator/src/graph/*.ts`
-- **DoD**: `thread_id = runId`; relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio.
+- **DoD**: `thread_id = runId`; relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio; test de que `setup()` es idempotente (dos ejecuciones seguidas) y `put`/`getTuple` contra PostgreSQL 16 en el esquema `langgraph`.
 
 ### TASK-024 · `LISTEN/NOTIFY` + SSE real con `Last-Event-ID`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-023 · **Scope**: `packages/persistence/src/notify/**`, `apps/web/app/api/runs/[id]/events/**`, `apps/web/components/run-timeline/**`
@@ -292,3 +303,10 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | Fecha | Cambio |
 |---|---|
 | 2026-10-20 | Creación con 39 tareas (M0–M5). READY: TASK-001, TASK-002. |
+| 2026-10-20 | TASK-001 (decisión humana): scope ampliado con `tsconfig.json` y `src/index.ts` por workspace y `pnpm-lock.yaml`; `.eslintrc.cjs` → `eslint.config.js` (ESLint 9 flat); deps autorizadas fijadas. Autorizadas TASK-001 y TASK-002 en paralelo (scopes disjuntos). |
+| 2026-10-20 | Planes TASK-001 y TASK-002 aprobados. Decisiones humanas: TS 5.9.3 + `@types/node` 22; ESLint última major estable (10.13.0); `.npmrc` `engine-strict` + `engines` en TASK-001; `pg` driver único; checkpointer en esquema `langgraph`; ADR-002 → Accepted; telemetría de turbo desactivada (DoD de TASK-003 y TASK-006). OD-007 (TS en runtime) bloquea TASK-003 y TASK-008. TASK-002 → IN_PROGRESS. |
+| 2026-10-20 | TASK-002: tester PASS; reviewer CHANGES_REQUESTED (2 MAJOR fuera de scope). Ciclo de corrección 1/3. Scope ampliado por decisión humana: ADR-000 (índice), SPEC §3, ARCHITECTURE §4 y §6. |
+| 2026-10-20 | Obligaciones de ADR-002 (decisión humana): TASK-004 rango de zod; TASK-005 `schemaFilter` y `setup()` en `db:migrate`; TASK-008 comprobación del esquema `langgraph` al arrancar; TASK-023 `setup()` idempotente. security REQUIRED en TASK-005, TASK-007, TASK-013. TASK-013: trazado de LangSmith desactivado. |
+| 2026-10-20 | TASK-002: tester PASS (ciclo 1) y reviewer APPROVED (ciclo 1); security no aplica (solo docs). Pendiente `/close-task`. TASK-001 → IN_PROGRESS (owner devops). |
+| 2026-10-20 | TASK-001: IMPLEMENTATION recibido; ciclo de corrección 1/3 (`.pnpm-store/` creado en el repo por la validación en Docker). `/close-task TASK-002` en paralelo (decisión humana). |
+| 2026-10-20 | TASK-002 → DONE (tester PASS, reviewer APPROVED; ciclo de corrección 1). Informe en docs/reports/TASK-002.md. |

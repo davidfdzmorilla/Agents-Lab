@@ -21,7 +21,7 @@ Entregables:
 - `GET /api/health` comprobando la conexión a PostgreSQL.
 - CI (OD-004) que ejecuta `lint`, `typecheck`, `test` contra PostgreSQL de servicio.
 - `.env.example`, `README.md` con instalación desde cero, `.githooks` instalados.
-- Versiones de dependencias fijadas (OD-001 resuelta).
+- Versiones de dependencias fijadas (OD-001 resuelta) — ✅ TASK-002.
 
 **Criterio de salida**: `docker compose up --build` levanta el entorno, `curl localhost:3000/api/health` devuelve `{ ok: true, db: "up" }` y `pnpm test` pasa en limpio y en CI.
 
