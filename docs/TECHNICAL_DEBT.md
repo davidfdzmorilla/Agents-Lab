@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-20 (TD-006…TD-010, cierre TASK-001) |
+| Última actualización | 2026-10-20 (TD-011…TD-012, cierre TASK-004) |
 
 Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, con fecha de pago. Si no tiene fecha de pago (hito), no es deuda: es un bug o una OPEN DECISION.
 
@@ -21,7 +21,9 @@ Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, co
 | TD-007 | `pnpm -r lint` no cubre los ficheros de configuración de la raíz (`eslint.config.js`, etc.). | LOW | TASK-001 (M0) | TASK-006 (lint de raíz en CI) | OPEN |
 | TD-008 | Sin target `make validate` para la validación en Docker `node:22` con store fuera del repo. | LOW | TASK-001 (M0) | TASK-003 (M0) | OPEN |
 | TD-009 | `apps/web/src/index.ts` es un placeholder ajeno a App Router. | LOW | TASK-001 (M0) | TASK-007 (M0) | OPEN |
-| TD-010 | `rootDir: src` en los tsconfig de workspace impide tipar ficheros de config/tests fuera de `src` (vitest.config.ts, next.config.ts). **rootDir se mantiene; decidir include/tsconfig aparte** (no quitar rootDir: cumple la Verificación de ADR-001). | LOW | TASK-001 (M0) | TASK-004 y TASK-007 (M0) | OPEN |
+| TD-010 | `rootDir: src` en los tsconfig de workspace impide tipar ficheros de config/tests fuera de `src` (vitest.config.ts, next.config.ts). **rootDir se mantiene; decidir include/tsconfig aparte** (no quitar rootDir: cumple la Verificación de ADR-001). | LOW | TASK-001 (M0) | TASK-004 y TASK-007 (M0) | OPEN (parcial: vitest.config.ts resuelto en TASK-004 con `tsconfig.config.json`; next.config.ts pendiente en TASK-007) |
+| TD-011 | `loadEnv()` devuelve `Env` con `DATABASE_URL` (con contraseña) y `*_API_KEY` como propiedades enumerables: `util.inspect`/`JSON.stringify` las muestran. Mientras no se pague: el objeto de `loadEnv()` no se pasa entero a ningún logger ni se serializa; se leen campos sueltos (regla para monorepo-conventions). | LOW | TASK-004 (M0) | TASK-027 (M3: `redactSecrets`, rutas `*_API_KEY`, `DATABASE_URL*`, contraseña en URLs) | OPEN |
+| TD-012 | `httpUrl()` (OLLAMA_BASE_URL, OTEL_EXPORTER_OTLP_ENDPOINT) admite credenciales embebidas y cualquier host; `postgresUrl()` es laxa. Sin SSRF real hoy (los fija el operador). | LOW | TASK-004 (M0) | TASK-020 (M2: rechazar user/password y allowlist de host, SPEC §9; las URLs pueden venir de BD/UI) | OPEN |
 
 ## Reglas
 

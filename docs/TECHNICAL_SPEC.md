@@ -275,7 +275,12 @@ Route Handlers de Next.js en `apps/web/app/api/**`. La API crea la ejecución y 
 | POST | `/api/runs/:id/resume` | Reanudar una ejecución en `awaiting_approval` o recuperable |
 | GET | `/api/runs/:id/result` | Resultado final (o parcial) |
 
-Eventos SSE tipados (discriminated union Zod en `core`): `run.started`, `run.step`, `agent.started`, `agent.completed`, `agent.failed`, `tool.started`, `tool.completed`, `run.awaiting_approval`, `run.cancelled`, `run.completed`, `run.failed`, `budget.warning`, `budget.exceeded`. Cada evento lleva `seq` (entero monótono por run) e `id` = `seq` para SSE.
+Eventos SSE tipados (discriminated union Zod en `core`), 15 tipos: `run.started`, `run.step`, `agent.started`, `agent.completed`, `agent.failed`, `tool.started`, `tool.completed`, `run.awaiting_approval`, `run.resumed`, `run.cancelled`, `run.completed`, `run.partial`, `run.failed`, `budget.warning`, `budget.exceeded`. Cada evento lleva `seq` (entero monótono por run) e `id` = `seq` para SSE.
+
+- `run.partial`: el run termina en el estado terminal `partial` (§6, `ARCHITECTURE.md §5`); lo emite `persist.result` en lugar de `run.completed` cuando se agota el límite de iteraciones o el presupuesto con resultado utilizable (`ARCHITECTURE.md §4`). Lleva el motivo (`partialReason`).
+- `run.resumed`: un run reanudado desde su último checkpoint tras la recuperación por heartbeat caducado (`ARCHITECTURE.md §4`); conserva su secuencia `seq`. Se emite desde M3 (TASK-026).
+
+Payload de cada tipo: mínimo tipado en `core` (OD-011, TASK-004).
 
 Autenticación de la API: **fuera de alcance v1** (monousuario local). `OD-003`: si se expone públicamente, mínimo un token estático en cabecera; se decide en M5.
 
@@ -332,6 +337,18 @@ Decisiones que la especificación **no** fija. Los agentes de desarrollo no las 
 | OD-005 | Modelo local por defecto para Ollama en `compose.yaml` (tamaño vs calidad) | humano | M2 |
 | OD-006 | Modelo de persistencia de artefactos (tabla `artifacts` vs columna JSON en `tasks`) | architect → humano | M4 |
 | OD-007 | ~~Ejecución de TypeScript en runtime (`apps/worker` y consumo de paquetes que exportan `.ts`): `tsx`, bundle o type stripping de Node~~ **DECIDIDA (2026-10-20): tsx — ADR-009 (Accepted)**: `tsx 4.23.15` exacta en `dependencies` de `apps/worker`; dev `tsx watch src/index.ts`, Docker `tsx src/index.ts`; `apps/web` lo resuelve Next; sin build del worker en v1 | architect → humano | M0, antes de TASK-003 (bloquea TASK-003 y TASK-008; no TASK-001) |
+| OD-009 | ~~Dónde se instalan Vitest y sus herramientas (raíz vs cada paquete)~~ **RESUELTA (2026-10-20)**: raíz, `devDependencies` exactas `vitest 5.0.5`, `@vitest/coverage-v8 5.0.5`, `vite 8.3.4`; `engines.node` pasa a `>=22.12 <23` (ARCHITECTURE §9) | humano | M0 (TASK-004) |
+| OD-010 | ~~Formato de los identificadores de los contratos~~ **RESUELTA (2026-10-20)**: UUID; v7 si la librería lo da sin dependencia nueva, si no v4 de `crypto.randomUUID`. Verificado: ni `zod 4.6.7` (solo valida, `z.uuidv7()`) ni Node 22.23.2 (`crypto` solo tiene `randomUUID`) generan v7 → **v4** (`crypto.randomUUID`, y `gen_random_uuid()` en PostgreSQL 16) | humano | M0 (TASK-004) |
+| OD-011 | ~~Payload de cada tipo de evento~~ **RESUELTA (2026-10-20)**: payload tipado mínimo por tipo según la tabla del plan de TASK-004 | humano | M0 (TASK-004) |
+| OD-012 | ~~`run.partial` y `run.resumed` fuera de la lista de eventos de §8~~ **RESUELTA (2026-10-20)**: se mantienen ambos; son **15 eventos**, no 13. `run.partial` es estado terminal propio (§6) y `run.resumed` lo exige la recuperación de M3 (ARCHITECTURE §4). Se corrige §8, no ARCHITECTURE | humano | M0 (TASK-004) |
+| OD-013 | ~~Tipos auxiliares citados en ARCHITECTURE §3 sin definir (`Message`, `ModelInfo`, `ToolCall`, `ToolSpec`, `JsonSchema`, `ToolContext`)~~ **RESUELTA (2026-10-20)**: mínimos para M1 | humano | M0 (TASK-004) |
+| OD-014 | ~~Campos de `AgentDefinition`, `TeamDefinition`, `RunRequest` y `Budget` no fijados~~ **RESUELTA (2026-10-20)**: propuesta concreta del plan de TASK-004, con la condición de **ningún campo opcional "por si acaso"**: lo que M1 no use, fuera | humano | M0 (TASK-004) |
+| OD-015 | ~~`env.ts`: obligatoriedad, valores por defecto y secretos~~ **RESUELTA (2026-10-20)**: solo `DATABASE_URL` obligatoria; el resto con los valores por defecto de ARCHITECTURE y `.env.example`; `LANGCHAIN_TRACING_V2` entra ya con valor por defecto `"false"` (DoD de TASK-013) | humano | M0 (TASK-004) |
+| OD-016 | ~~Códigos de error fuera de la lista del DoD y ubicación de `InvalidTransitionError`~~ **RESUELTA (2026-10-20)**: códigos de error del plan e `InvalidTransitionError` en `core` | humano | M0 (TASK-004) |
+| OD-017 | ~~Cómo obtienen los adaptadores sus claves sin leer `process.env` fuera de `core/env.ts`~~ **RESUELTA (2026-10-20)**: `core` exporta `SecretResolver` (`(envName: string) => string \| undefined`) construido en `env.ts`; los adaptadores lo reciben inyectado y nunca tocan `process.env`. El resolver solo resuelve nombres que cumplen `^[A-Z][A-Z0-9_]*_API_KEY$` **y** están declarados en el esquema de `env.ts`; cualquier otro nombre → `undefined`. Descartadas: (a) resolver cualquier nombre y (b) lista negra de no secretos, porque falla por omisión (cualquier variable no declarada —`PATH`, `HOME`, las de LangSmith, las del sistema— seguiría siendo legible) | humano | M0 (afecta TASK-004 y TASK-010) |
+| OD-018 | ~~Valores de `.env.example` para `OLLAMA_BASE_URL`, `AGENTLAB_PROVIDER` y `DATABASE_URL_TEST`: ¿defaults de `env.ts` o ejemplos?~~ **RESUELTA (2026-10-20)**: son ejemplos; `env.ts` no fija defaults para esas tres; credenciales de la base de pruebas fuera del código; sin `DATABASE_URL_TEST` los tests de integración fallan con mensaje claro, no se saltan (testing-conventions, regla 6; TASK-005) | humano | M0 (TASK-004) |
+
+OD-008 no existe a propósito: se mencionó en sesión como "no abierta" y su número no se reutiliza.
 
 ### OD-007 — Propuesta (~~`PROPUESTA — pendiente de decisión humana`~~ **DECIDIDA 2026-10-20 → ADR-009, Accepted**)
 

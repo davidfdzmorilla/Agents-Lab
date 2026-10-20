@@ -2,9 +2,9 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-20 (cierre TASK-001) |
+| Última actualización | 2026-10-20 (cierre TASK-004) |
 | Hito actual | M0 |
-| Tareas READY | TASK-003, TASK-004 |
+| Tareas READY | TASK-003, TASK-010, TASK-012 |
 
 ## Cómo se lee este documento
 
@@ -62,10 +62,15 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Apagado limpio: `docker compose stop worker` hace que el contenedor termine en < `SHUTDOWN_GRACE_MS` con código 0 (`stop_grace_period` > `SHUTDOWN_GRACE_MS`).
 
 ### TASK-004 · packages/core: esquemas Zod, errores tipados, env
-- **Estado**: READY · **Owner**: core-dev · **Depende de**: TASK-001
-- **Scope**: `packages/core/**`
+- **Estado**: DONE · **Owner**: core-dev (paso 0: devops) · **Depende de**: TASK-001 · **security REQUIRED** (decisión humana)
+- **Scope**: `packages/core/**`; paso 0 (devops): `package.json` (raíz), `packages/core/package.json`, `pnpm-lock.yaml`
+- **Dependencias autorizadas** (versión exacta): `zod` 4.6.7 en `dependencies` de `packages/core`; `vitest` 5.0.5, `@vitest/coverage-v8` 5.0.5 y `vite` 8.3.4 en `devDependencies` de la raíz. Paso 0 también sube `engines.node` a `>=22.12 <23`.
+- **Plan aprobado**: `docs/reports/TASK-004-plan.md` (con decisiones humanas OD-009…OD-017).
 - **DoD**:
-  - Esquemas: `AgentDefinitionSchema`, `TeamDefinitionSchema`, `RunRequestSchema`, `RunEventSchema` (discriminated union con los 13 tipos de SPEC §8), `BudgetSchema`, `AgentInvocationResultSchema`, `ProviderCapabilitiesSchema`.
+  - Esquemas: `AgentDefinitionSchema`, `TeamDefinitionSchema`, `RunRequestSchema`, `RunEventSchema` (discriminated union con los 15 tipos de SPEC §8, incluidos `run.partial` y `run.resumed`), `BudgetSchema`, `AgentInvocationResultSchema`, `ProviderCapabilitiesSchema`. Sin campos opcionales que M1 no use.
+  - Ids UUID (v7 si está disponible sin dependencia nueva; si no, v4 de `crypto.randomUUID`).
+  - `env.ts`: solo `DATABASE_URL` obligatoria; resto con valores por defecto de ARCHITECTURE y `.env.example`; `LANGCHAIN_TRACING_V2` con valor por defecto `"false"`.
+  - `SecretResolver` (`(envName: string) => string | undefined`) exportado desde `core`, construido en `env.ts`; nunca expone valores en mensajes de error (test). Allowlist (OD-017): solo resuelve nombres que cumplen `^[A-Z][A-Z0-9_]*_API_KEY$` **y** están declarados en `env.ts`; cualquier otro (PATH, HOME, `DATABASE_URL`, `LANGCHAIN_*`, no declarados) → `undefined` (tests).
   - Interfaces `ModelProvider`, `Tool`, `GenerateRequest/Response` exactamente como `ARCHITECTURE.md §3`.
   - `AgentLabError` base con `code`, `retryable`, `cause`; subclases de proveedor y presupuesto.
   - `env.ts` con esquema Zod; `loadEnv()` falla con mensaje claro si falta una variable.
@@ -86,6 +91,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `RunsRepository` (`create`, `get`, `claimNext` con `SKIP LOCKED`, `transition` que respeta `canTransition`, `heartbeat`), `EventsRepository` (`append` con `seq` atómico, `listSince(runId, seq)`), `ProjectsRepository`, `AgentDefinitionsRepository`.
   - `transition` a un estado inválido lanza `InvalidTransitionError` (409 en API).
   - Tests de integración contra PostgreSQL real; `claimNext` probado con dos llamadas concurrentes que no reclaman el mismo run.
+  - Si falta `DATABASE_URL_TEST`, los tests de integración fallan con un mensaje claro (no se saltan; testing-conventions regla 6). `env.ts` no le da valor por defecto: las credenciales de la base de pruebas no van en código (OD-018).
   - `provider_configs.api_key_env` es `text`; test que falla si se intenta guardar un valor que parezca una clave (`sk-`, `AIza`, longitud > 40 sin espacios).
 
 ### TASK-006 · CI: lint, typecheck, test contra PostgreSQL de servicio
@@ -133,10 +139,12 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ## M1 — MVP
 
 ### TASK-010 · packages/providers: interfaz + adaptador OpenAI-compatible + FakeProvider
-- **Estado**: BLOCKED · **Owner**: providers-dev · **Depende de**: TASK-004
+- **Estado**: READY · **Owner**: providers-dev · **Depende de**: TASK-004
 - **Scope**: `packages/providers/**`
 - **DoD**:
-  - `OpenAICompatibleProvider({ baseUrl, apiKeyEnv, capabilities })` sobre el SDK de OpenAI; `apiKey` leído de `process.env[apiKeyEnv]` en construcción y nunca expuesto en propiedades enumerables ni en `toJSON`.
+  - `OpenAICompatibleProvider({ baseUrl, apiKeyEnv, capabilities, secretResolver })` sobre el SDK de OpenAI; `apiKey` obtenido con el `SecretResolver` de `core` inyectado (`secretResolver(apiKeyEnv)`) en construcción y nunca expuesto en propiedades enumerables ni en `toJSON`. Ningún adaptador lee `process.env` (OD-017: el resolver solo acepta `^[A-Z][A-Z0-9_]*_API_KEY$` declarados en `env.ts`); test que lo comprueba.
+  - Si `api_key_env` no resuelve (nombre no permitido o variable vacía/ausente), el adaptador lanza `ProviderAuthError` en la construcción, nunca en la primera llamada; el mensaje cita el nombre, nunca un valor (test).
+  - Los errores de los adaptadores nunca incluyen cabeceras (`Authorization`) ni la request del SDK/fetch: test con valor canario que comprueba que no aparece en `message`, `cause`, `stack` ni serialización (security, TASK-004).
   - Timeout por petición vía `AbortSignal`; errores mapeados a las subclases de `core` (401 → `ProviderAuthError`, 429 → `ProviderRateLimitError` con `retryAfterMs`, timeout → `ProviderTimeoutError`).
   - `usage` devuelto tal cual; `null` si el proveedor no lo informa.
   - `FakeProvider` determinista: responde según un guion por rol, permite simular 429, timeout y salida inválida. Vive en `packages/providers/src/testing/` y se exporta desde `@agentlab/providers/testing`.
@@ -153,7 +161,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Cobertura ≥ 90 %.
 
 ### TASK-012 · packages/agents: roles, prompts versionados y outputSchemas (Manager, Researcher, Analyst, Critic)
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-004
+- **Estado**: READY · **Owner**: engine-dev · **Depende de**: TASK-004
 - **Scope**: `packages/agents/**`
 - **DoD**:
   - Un archivo por rol con `systemPrompt`, `promptVersion` (`1.0.0`), `outputSchema` (Zod) y `defaultLimits`.
@@ -171,7 +179,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Cada nodo comprueba `cancelRequested` al entrar y emite el evento correspondiente.
   - Revisión `fail` dos veces → `partial` con `result.partialReason`.
   - Tests con `FakeProvider`: camino feliz, `partial` por iteraciones, `partial` por presupuesto, `failed` por error no recuperable, cancelación entre nodos.
-  - Trazado de LangSmith desactivado explícitamente: `LANGCHAIN_TRACING_V2=false` y sin `LANGCHAIN_API_KEY` en `.env.example`, validado en `core/env.ts`; test de que ninguna llamada sale hacia LangSmith con `FakeProvider`.
+  - Trazado de LangSmith desactivado explícitamente: `LANGCHAIN_TRACING_V2=false` y sin `LANGCHAIN_API_KEY` en `.env.example` (la validación en `core/env.ts` con valor por defecto `"false"` ya la hace TASK-004); test de que ninguna llamada sale hacia LangSmith con `FakeProvider`.
 
 ### TASK-014 · API: `POST /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/result`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-007, TASK-011
@@ -337,3 +345,10 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-20 | TASK-001 commit 4a12555 |
 | 2026-10-20 | OD-007 decidida por el humano: tsx (ADR-009 Proposed). TASK-003 → READY (scope pendiente: apps/worker/package.json, pnpm-lock.yaml); TASK-008 sin OD-007 (sigue BLOCKED por TASK-005). `tsx` 4.23.15 en deps autorizadas de ambas. |
 | 2026-10-20 | ADR-009 Accepted (decisión humana) con fallback `node --import tsx`. TASK-003: scope + `apps/worker/package.json`, `pnpm-lock.yaml`; declara `tsx`; DoD de apagado limpio del contenedor. TASK-008: usa `tsx` (no lo declara); DoD de SIGTERM corregido. TASK-023: checkpoint antes de salir con SIGTERM. |
+| 2026-10-20 | TASK-004: plan aprobado; OD-009…OD-017 resueltas por el humano (15 eventos, UUID, sin opcionales sobrantes, env con LANGCHAIN_TRACING_V2, SecretResolver). Deps y ampliación de scope (paso 0 devops, engines `>=22.12 <23`) aprobadas. TASK-010 usa SecretResolver. Nota: `docs/reports/TASK-004-plan.md` entró en el commit 67712cd (Task: none). |
+| 2026-10-20 | OD-017 precisada (decisión humana): SecretResolver por allowlist — `^[A-Z][A-Z0-9_]*_API_KEY$` y declarado en `env.ts`; descartadas cualquier nombre (a) y lista negra (b). DoD de TASK-004 y TASK-010 actualizados; comunicado a core-dev en curso. |
+| 2026-10-20 | TASK-004: IMPLEMENTATION recibido (devops paso 0 + core-dev) → REVIEW; security REQUIRED por decisión humana. TASK-010: `ProviderAuthError` en construcción si `api_key_env` no resuelve (decisión humana). |
+| 2026-10-20 | TASK-004: tester PASS (12/12); reviewer CHANGES_REQUESTED (1 MAJOR: falta test de inventario de la allowlist del SecretResolver) → ciclo de corrección 1/3 (MAJOR + MINOR de validación de URLs). |
+| 2026-10-20 | TASK-004 (ciclo 1): tester PASS (156 tests, 100 %, mutación del inventario OK); reviewer APPROVED; security APPROVED (4 LOW). Pendiente: OD sobre defaults de `.env.example` y aprobación de deuda antes de `/close-task`. |
+| 2026-10-20 | TASK-004 → DONE (tester PASS, reviewer APPROVED, security APPROVED; 1 ciclo de corrección). Informe en docs/reports/TASK-004.md. TASK-010 y TASK-012 → READY. Deuda TD-011, TD-012. OD-018 resuelta. |
+| 2026-10-20 | Regla pendiente para .claude/skills/monorepo-conventions/SKILL.md (TD-011): el objeto de loadEnv() no se pasa entero a ningún logger ni se serializa; se leen campos sueltos. No aplicada: role-guard impide a docs-keeper editar .claude/skills/**; la añade el humano. |

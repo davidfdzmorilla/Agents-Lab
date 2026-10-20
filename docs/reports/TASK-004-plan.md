@@ -5,11 +5,37 @@
 | Tarea | TASK-004 (M0) · owner de implementación: core-dev |
 | Autor del plan | architect |
 | Fecha | 2026-10-20 |
-| Estado | Propuesto: pendiente de aprobación humana (deps_allowed, ampliación de scope, OPEN DECISIONS) |
+| Estado | **Aprobado (2026-10-20)** con las decisiones humanas de abajo; ajustado por architect el mismo día |
+
+## Decisiones humanas (2026-10-20)
+
+> "1. Las 8 OPEN DECISIONS, decididas: A Vitest en la raíz. Sí. B Ids UUID (v7 si la librería lo da sin dependencia nueva; si no, v4 de crypto.randomUUID). Sí. C Tipado mínimo de eventos con la tabla del plan. Sí. D NO: se mantienen run.partial y run.resumed. Son 15 eventos, no 13; run.partial es estado terminal propio (SPEC §6) y run.resumed lo exige la recuperación de M3 (ARCHITECTURE §4). El architect corrige SPEC §8, no ARCHITECTURE. E Tipos auxiliares mínimos para M1. Sí. F Propuesta concreta del plan para AgentDefinition, TeamDefinition, RunRequest y Budget. Sí, con una condición: ningún campo opcional "por si acaso"; lo que M1 no use, fuera. G Solo DATABASE_URL obligatoria; el resto con los valores por defecto de ARCHITECTURE y .env.example. Sí. LANGCHAIN_TRACING_V2 entra ya en env.ts con valor por defecto "false" (viene de la DoD de TASK-013). H Códigos de error e InvalidTransitionError en core. Sí.
+> 2. Dependencias aprobadas: zod 4.6.7 en core; vitest 5.0.5, @vitest/coverage-v8 5.0.5 y vite 8.3.4 en la raíz (dev). Paso previo de devops con engines >=22.12 <23. Ampliación de scope aprobada tal como la propone el plan.
+> 3. Plan aprobado."
+>
+> "Sobre TASK-010 y process.env: decidido ahora para no volver. core exporta un `SecretResolver` (`(envName) => string | undefined`) construido en env.ts; los adaptadores lo reciben inyectado y nunca tocan process.env."
+>
+> "(c), con la precisión de mi mensaje anterior: solo `^[A-Z][A-Z0-9_]*_API_KEY$` y además declarado en env.ts. (b) es una lista negra y falla por omisión: cualquier variable no declarada (PATH, HOME, las de LangSmith, las del sistema) seguiría siendo legible. (a) descartada. Actualiza OD-017 como resuelta con eso."
+
+| OD del plan | Registro en SPEC §13 | Decisión | Efecto en este plan |
+|---|---|---|---|
+| OD-A | OD-009 | Vitest en la raíz | Paso 0 (devops) con `engines.node` `>=22.12 <23` |
+| OD-B | OD-010 | UUID; v7 solo si sale gratis, si no v4 | **v4** (evidencia abajo); validación `z.uuid()` |
+| OD-C | OD-011 | Payload tipado mínimo | Tabla de 15 payloads en Contratos |
+| OD-D | OD-012 | **No** a la recomendación: 15 eventos | `run.partial` y `run.resumed` en `RUN_EVENT_TYPES`; SPEC §8 corregida; ARCH §4 intacta |
+| OD-E | OD-013 | Tipos auxiliares mínimos | Sin cambios |
+| OD-F | OD-014 | Propuesta, sin opcionales "por si acaso" | Fuera `TeamDefinition.coordination` y `run.completed.{status, partialReason?}` (ver Esquemas) |
+| OD-G | OD-015 | Solo `DATABASE_URL` obligatoria | `LANGCHAIN_TRACING_V2` con defecto `"false"` |
+| OD-H | OD-016 | Códigos e `InvalidTransitionError` en core | Sin cambios |
+| — | OD-017 | `SecretResolver` en core; solo `^[A-Z][A-Z0-9_]*_API_KEY$` **y** declarado en `EnvSchema` | `createSecretResolver` en `env.ts` con allowlist (decisión 12) |
+
+OD-008 no existe a propósito (se citó en sesión como "no abierta"; no se reutiliza). SPEC §8 y §13 y ARCHITECTURE §9 ya están actualizadas en este encargo; el antiguo paso 11 queda hecho.
+
+**Evidencia OD-010 (UUID v7)**, verificado el 2026-10-20 fuera del repo (regla 11) en Docker `node:22` (v22.23.2) y sobre el tarball `zod-4.6.7.tgz` de npm, en el scratchpad: `typeof require("node:crypto").randomUUIDv7` → `undefined`; la única función UUID de `node:crypto` es `randomUUID` (v4). En zod 4.6.7, `uuidv7` (`v4/classic/schemas.js:390`) es solo un **esquema validador**; no hay generador. Conclusión: **v4 vía `crypto.randomUUID()`** (y `gen_random_uuid()`, v4, como `default` de PostgreSQL 16 en ARCH §6).
 
 ## Contexto
 
-`packages/core` hoy solo tiene `export {};`, un `package.json` con `typecheck`/`lint` y un `tsconfig.json` con `rootDir: src` + `include: ["src"]` (TASK-001). La tarea crea los contratos de los que dependen TASK-005 (persistence: `RunStatus`, `canTransition`, eventos), TASK-010 (providers: `ModelProvider`, errores de proveedor, capacidades), TASK-011 (policies: `Budget`, `BudgetExceededError`), TASK-012 (agents: `AgentDefinition`, `TeamDefinition`) y TASK-013 (orchestrator; añadirá `LANGCHAIN_TRACING_V2` a `env.ts` más adelante). Es la primera tarea con tests: introduce Vitest en el monorepo y paga TD-010 en `core`.
+`packages/core` hoy solo tiene `export {};`, un `package.json` con `typecheck`/`lint` y un `tsconfig.json` con `rootDir: src` + `include: ["src"]` (TASK-001). La tarea crea los contratos de los que dependen TASK-005 (persistence: `RunStatus`, `canTransition`, eventos, `InvalidTransitionError`), TASK-010 (providers: `ModelProvider`, errores de proveedor, capacidades, `SecretResolver`), TASK-011 (policies: `Budget`, `BudgetExceededError`), TASK-012 (agents: `AgentDefinition`, `TeamDefinition`) y TASK-013 (orchestrator: `LANGCHAIN_TRACING_V2` ya validada aquí con defecto `"false"`). Es la primera tarea con tests: introduce Vitest en el monorepo y paga TD-010 en `core`.
 
 ## Validación hecha fuera del repo (DEVELOPMENT_WORKFLOW §3 regla 11)
 
@@ -28,6 +54,7 @@ Copia mínima del monorepo (configs raíz + `packages/core`) en el scratchpad de
 | `loadEnv({ DATABASE_URL: "<valor inválido con un canario>" })` con `z.prettifyError` | Mensaje `✖ Invalid URL → at DATABASE_URL`; **el valor no aparece** |
 | `z.strictObject` con clave `budget` extra | `unrecognized_keys` (rechazo, no descarte silencioso) |
 | `z.toJSONSchema`, `z.iso.datetime`, `z.uuid`, `z.prettifyError`, `z.discriminatedUnion` en zod 4.6.7 | disponibles |
+| UUID v7 sin dependencia nueva (2026-10-20, ajuste) | No: Node 22.23.2 sin `crypto.randomUUIDv7`; zod 4.6.7 solo valida v7. `z.uuid()` acepta un v4 de `crypto.randomUUID()` y también un v7 (migración futura sin cambiar contratos) |
 
 Versiones consultadas con `npm view` el 2026-10-20:
 
@@ -41,7 +68,7 @@ Versiones consultadas con `npm view` el 2026-10-20:
 
 Guía de migración a Vitest 5 (https://vitest.dev/guide/migration, consultada 2026-10-20, sin fecha en la página): Vite pasa a peer; Node ≥ 22.12; `coverage.include` relativo a la raíz del proyecto; ya no busca la config en directorios padre.
 
-## Dependencias propuestas (`deps_allowed`, pendiente de aprobación humana)
+## Dependencias (`deps_allowed`, aprobadas 2026-10-20)
 
 | Paquete | Versión exacta | Dónde | Tipo | Motivo |
 |---|---|---|---|---|
@@ -50,17 +77,18 @@ Guía de migración a Vitest 5 (https://vitest.dev/guide/migration, consultada 2
 | `@vitest/coverage-v8` | `5.0.5` | raíz | `devDependencies` | Cobertura v8 (testing-conventions §7) |
 | `vite` | `8.3.4` | raíz | `devDependencies` | Peer obligatorio de Vitest 5; declararlo explícitamente evita que lo fije `auto-install-peers` sin control |
 
-Ver OD-A para raíz frente a `packages/core`.
+Raíz frente a `packages/core`: decidido raíz (OD-A → OD-009).
 
-## Ampliación de scope propuesta (decide el humano)
+## Ampliación de scope (aprobada 2026-10-20)
 
 El scope literal (`packages/core/**`) no basta: instalar cualquier dependencia reescribe `pnpm-lock.yaml`.
 
 | Ruta fuera de `packages/core/**` | Por qué | Quién (role-guard) |
 |---|---|---|
-| `package.json` (raíz) | `devDependencies`: `vitest`, `@vitest/coverage-v8`, `vite` (solo con OD-A = raíz) | devops |
+| `package.json` (raíz) | `devDependencies`: `vitest`, `@vitest/coverage-v8`, `vite`; `engines.node` → `>=22.12 <23` | devops |
+| `packages/core/package.json` | `dependencies.zod` (solo esa clave; los `scripts` los toca core-dev en el paso 1) | devops |
 | `pnpm-lock.yaml` | Lo regenera `pnpm add`/`pnpm install` (nunca a mano) | devops |
-| `docs/ARCHITECTURE.md` §9 (tras el cierre) | ARCH §9 dice "`zod` se fija en TASK-004": añadir la fila `zod 4.6.7 · core` (y Vitest si el humano quiere que conste) | architect |
+| `docs/ARCHITECTURE.md` §9 | Filas `zod`, `vitest`, `@vitest/coverage-v8`, `vite` y `engines` del Node | architect — **hecho** (2026-10-20, este ajuste) |
 
 No hacen falta `turbo.json` (`test` ya tiene `outputs: ["coverage/**"]` y `dependsOn: ["^build"]` sin builds), `vitest.workspace.*` (turbo ya ejecuta `test` por paquete), `.gitignore` (`coverage/` ya ignorado) ni `eslint.config.js`.
 
@@ -83,7 +111,11 @@ Propuesta de reparto (recomendada): **paso 0 a cargo de devops** (raíz `package
 9. **Interfaces de ARCH §3.1/§3.2 copiadas literalmente como `interface` TypeScript** (sin Zod salvo `ProviderCapabilitiesSchema`, que pide el DoD). `ProviderCapabilities` = `z.infer<typeof ProviderCapabilitiesSchema>`, y un test de tipos (`expectTypeOf<ProviderCapabilities>().toEqualTypeOf<{…literal de §3.1…}>()`) asegura que coincide campo a campo. Igual con `Budget` frente a la lista de §3.3.
 10. **Máquina de estados como tabla `Readonly<Record<RunStatus, readonly RunStatus[]>>`** y `canTransition(from, to)` puro. La fila "— → `queued`" de §5 es la creación, no una transición entre estados: no entra en `canTransition` (`RunsRepository.create` inserta `queued`). Se exportan también `TERMINAL_RUN_STATUSES` e `isTerminalRunStatus`, porque §5 define literalmente los estados terminales y los consumen TASK-014 (409 si no es terminal) y TASK-024 (cerrar SSE).
     — Descartado `canTransition(from: RunStatus | null, …)`: mezcla creación y transición y complica `transition()` de TASK-005.
-11. **Sin `DEFAULT_BUDGET` en core**: los valores por defecto dependen de OD-002 (TD-003 los asigna a TASK-011) y del `budget_profile` del proyecto. Nada que el DoD no pida: sin `BudgetSnapshot`, `Usage` de policies, `Checkpointer` wrapper, helpers de lectura de secretos ni `LANGCHAIN_TRACING_V2`.
+11. **Sin `DEFAULT_BUDGET` en core**: los valores por defecto dependen de OD-002 (TD-003 los asigna a TASK-011) y del `budget_profile` del proyecto. Nada que el DoD no pida: sin `BudgetSnapshot`, `Usage` de policies, `Checkpointer` wrapper ni más helpers de secretos que `SecretResolver` (decisión 12).
+12. **`SecretResolver` (OD-017) en `env.ts`**: `type SecretResolver = (envName: string) => string | undefined` y `createSecretResolver(source: EnvSource = process.env): SecretResolver`. **Allowlist (OD-017, decisión humana)**: un nombre es resoluble solo si cumple **las dos** condiciones: (1) `SECRET_ENV_NAME_PATTERN = /^[A-Z][A-Z0-9_]*_API_KEY$/` (anclada, sin flags `g`/`y` para que `test()` no tenga estado `lastIndex`) y (2) `Object.hasOwn(EnvSchema.shape, envName)`. Hoy eso deja exactamente **`OPENROUTER_API_KEY` y `GEMINI_API_KEY`**, las dos `*_API_KEY` de `.env.example`, declaradas en `EnvSchema` como **opcionales sin defecto** (`""` = no definida); ninguna otra variable de `EnvSchema` cumple el patrón. Si el nombre no pasa la allowlist → `undefined` sin mirar la fuente. Si pasa, lee **en cada llamada** de la fuente inyectada (no copia el entorno al construirse) y devuelve el valor solo si `Object.hasOwn(source, envName)` y es `string` no vacío; en otro caso `undefined` (la cadena vacía cuenta como no definida, igual que en `loadEnv`; `hasOwn` evita miembros del prototipo de `process.env`). El conjunto permitido se deriva del esquema, no se duplica en una lista aparte: añadir un proveedor con clave nueva = declarar `XXX_API_KEY` opcional en `EnvSchema` (cambio en `packages/core/**`). `SECRET_ENV_NAME_PATTERN` es un detalle interno de `env.ts` (no se exporta). Nunca lanza, así que no puede filtrar valores por mensajes de error; el error "falta la clave" lo construye el adaptador con el **nombre** (TASK-010). `process.env` sigue apareciendo solo en `env.ts` (como parámetro por defecto de `loadEnv` y `createSecretResolver`).
+    — Descartadas (decisión humana): (a) resolver cualquier nombre → un `provider_configs.api_key_env` = `DATABASE_URL` enviaría la URL de la base de datos a un tercero; (b) lista negra de no secretos de `EnvSchema` → falla por omisión: `PATH`, `HOME`, las de LangSmith y las del sistema seguirían siendo legibles. También descartado `Env` como fuente de secretos para los adaptadores → contradice OD-017.
+13. **Ids UUID (OD-010)**: todos los ids de los contratos (`id`, `projectId`, `teamId`, `agentIds[]`, `providerId`, `agentDefinitionId`, `runId`) se validan con `z.uuid()` (RFC 9562, cualquier versión). Se generan como v4: `gen_random_uuid()` en la base de datos (ARCH §6) o `crypto.randomUUID()` cuando haga falta en código. `core` **no exporta generador** de ids: ningún consumidor de M1 lo necesita en core y sería una abstracción sobre una llamada de una línea.
+    — Descartado `z.uuidv4()`: rechazaría un futuro v7 (PostgreSQL ≥ 18 o Node) sin aportar seguridad.
 
 ## Contratos públicos nuevos (todo desde `@agentlab/core`)
 
@@ -132,7 +164,7 @@ interface Tool<I, O> {
 }
 ```
 
-`ModelInfo`, `Message`, `ToolSpec`, `ToolCall`, `JsonSchema`, `ToolContext`: ver OD-E.
+`ModelInfo`, `Message`, `ToolSpec`, `ToolCall`, `JsonSchema`, `ToolContext`: mínimos de OD-E (decidido, OD-013). Los opcionales de `GenerateRequest`/`GenerateResponse` (`tools?`, `responseSchema?`, `temperature?`, `raw?`) se mantienen porque son literales de ARCH §3.1 y el DoD exige "exactamente como ARCHITECTURE §3".
 
 Tabla de ARCHITECTURE §5 (`run-status.ts`), transiciones permitidas (10 pares; el resto de las 49 combinaciones → `false`):
 
@@ -143,7 +175,7 @@ Tabla de ARCHITECTURE §5 (`run-status.ts`), transiciones permitidas (10 pares; 
 | `awaiting_approval` | `running`, `cancelled` |
 | `completed`, `partial`, `failed`, `cancelled` | — (terminales) |
 
-Resto de exports (los campos concretos dependen de OD-B…OD-G):
+Resto de exports (campos concretos en "Esquemas" y "Eventos" más abajo):
 
 ```ts
 RunStatusSchema / RunStatus            // 7 estados de ARCH §5
@@ -154,11 +186,14 @@ AgentDefinitionSchema / AgentDefinition
 TeamDefinitionSchema / TeamDefinition
 RunRequestSchema / RunRequest
 BudgetSchema / Budget; BudgetLimit = keyof Budget
-RunEventSchema / RunEvent; RUN_EVENT_TYPES   // 13 tipos de SPEC §8, discriminante "type"
+RunEventSchema / RunEvent; RUN_EVENT_TYPES   // 15 tipos de SPEC §8, discriminante "type"
 AgentInvocationResultSchema / AgentInvocationResult (+ InvocationErrorSchema, InvocationUsageSchema)
 ProviderCapabilitiesSchema / ProviderCapabilities
 JsonSchemaSchema / JsonSchema
-EnvSchema / Env; loadEnv(source?: Readonly<Record<string, string | undefined>>): Env
+type EnvSource = Readonly<Record<string, string | undefined>>
+EnvSchema / Env; loadEnv(source?: EnvSource): Env              // por defecto process.env
+type SecretResolver = (envName: string) => string | undefined  // OD-017
+createSecretResolver(source?: EnvSource): SecretResolver       // por defecto process.env; nunca lanza; solo *_API_KEY declaradas en EnvSchema
 type AgentLabErrorCode = "PROVIDER_AUTH" | "PROVIDER_RATE_LIMIT" | "PROVIDER_TIMEOUT"
   | "PROVIDER_CAPABILITY" | "PROVIDER_RESPONSE" | "BUDGET_EXCEEDED" | "ENV_INVALID" | "INVALID_TRANSITION"
 abstract class AgentLabError extends Error { readonly code; readonly retryable: boolean; /* cause nativo */ }
@@ -169,16 +204,53 @@ class ProviderCapabilityError  // PROVIDER_CAPABILITY, retryable false
 class ProviderResponseError    // PROVIDER_RESPONSE, retryable por parámetro (por defecto false)
 class BudgetExceededError      // BUDGET_EXCEEDED, retryable false, readonly limit: BudgetLimit (TASK-011)
 class EnvValidationError       // ENV_INVALID, retryable false
-class InvalidTransitionError   // INVALID_TRANSITION, retryable false, from/to (solo si OD-H = sí)
+class InvalidTransitionError   // INVALID_TRANSITION, retryable false, readonly from/to: RunStatus (OD-016)
 ```
 
-Los 13 tipos de evento, literales de SPEC §8: `run.started`, `run.step`, `agent.started`, `agent.completed`, `agent.failed`, `tool.started`, `tool.completed`, `run.awaiting_approval`, `run.cancelled`, `run.completed`, `run.failed`, `budget.warning`, `budget.exceeded`. Sobre común (ARCH §3.4): `type`, `runId`, `seq`, `ts`, `payload`.
+### Esquemas (OD-014: propuesta del plan sin opcionales "por si acaso")
 
-Variables de entorno que existen hoy (`.env.example`; SPEC/ARCH no añaden otras): `DATABASE_URL`, `DATABASE_URL_TEST`, `WORKER_CONCURRENCY`, `WORKER_HEARTBEAT_MS`, `WORKER_STALE_MS`, `SHUTDOWN_GRACE_MS`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `OLLAMA_BASE_URL`, `AGENTLAB_PROVIDER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `LOG_LEVEL`. `LANGCHAIN_TRACING_V2` **no** se añade (TASK-013). Obligatoriedad y valores por defecto: OD-G.
+Todos `z.strictObject`, todos los campos **obligatorios**; ids con `z.uuid()` (decisión 13).
+
+| Esquema | Campos |
+|---|---|
+| `AgentDefinitionSchema` | `id`, `name` (no vacío), `role: AgentRole`, `systemPrompt` (no vacío), `promptVersion` (regex semver.org), `providerId` (uuid), `modelId` (no vacío), `toolAllowlist: string[]` (`[]` = sin herramientas; lo consume `ToolAuthorizer.check` en TASK-011), `maxCalls`/`maxTokens`/`timeoutMs` (enteros > 0), `outputSchema: JsonSchema`, `enabled: boolean` — exactamente SPEC §4.4 |
+| `TeamDefinitionSchema` | `id`, `name` (no vacío), `graphBuilder` (no vacío; M1: `research`), `agentIds: uuid[]` (≥ 1) |
+| `RunRequestSchema` | `projectId`, `teamId` (uuid), `input` (string recortado no vacío). Sin `budget` (lo rechaza `strictObject`). Sin longitud máxima: ningún documento la define |
+| `BudgetSchema` | Los 10 campos de ARCH §3.3, obligatorios, sin defectos: enteros > 0 salvo `maxReviewIterations` y `maxToolsPerInvocation` (≥ 0) y `maxContextRatio` ∈ (0, 1] |
+| `AgentInvocationResultSchema` | Literal de SPEC §4.5: `content: unknown`, `status` (5 valores), `errors: InvocationError[]`, `references: { kind, uri, title? }[]`, `usage: { inputTokens?, outputTokens?, costReported? }`. Estos tres opcionales **se mantienen**: los define SPEC §4.5 ("solo si el proveedor lo facilita"), no son "por si acaso" |
+
+**Eliminado respecto a la propuesta original** (M1 no lo usa):
+- `TeamDefinition.coordination: Record<string, unknown>` → entra con TASK-034 (M4, "`coordination jsonb` validado"). La columna `coordination jsonb` de ARCH §6 es de TASK-005: necesitará `default '{}'` o `null` mientras el contrato no la tenga.
+- `run.completed.payload.status: "completed" | "partial"` y `run.completed.payload.partialReason?` (alternativa (a) de OD-D, rechazada) → sustituidos por el evento `run.partial`.
+
+### Eventos (OD-011 + OD-012: 15 tipos)
+
+Sobre común (ARCH §3.4): `type`, `runId` (uuid), `seq` (entero ≥ 1), `ts` (ISO-8601 con zona), `payload`. Orden de SPEC §8:
+
+| `type` | `payload` (strict, todo obligatorio) |
+|---|---|
+| `run.started` | `{}` |
+| `run.step` | `{ node: string, step: int ≥ 0 }` |
+| `agent.started` | `{ agentDefinitionId, role, step, attempt: int ≥ 1 }` |
+| `agent.completed` | `{ agentDefinitionId, role, step, durationMs: int ≥ 0, usage: InvocationUsage }` |
+| `agent.failed` | `{ agentDefinitionId, role, step, error: InvocationError }` |
+| `tool.started` | `{ toolName, step }` |
+| `tool.completed` | `{ toolName, step, durationMs }` |
+| `run.awaiting_approval` | `{ toolName }` |
+| `run.resumed` | `{}` (ARCH §4: conserva `seq`; lo emite TASK-026) |
+| `run.cancelled` | `{}` |
+| `run.completed` | `{}` |
+| `run.partial` | `{ partialReason: string no vacío }` (mismo motivo que `result.partialReason` de TASK-013) |
+| `run.failed` | `{ error: InvocationError }` |
+| `budget.warning`, `budget.exceeded` | `{ limit: BudgetLimit, used: number, max: number }` |
+
+### Entorno (OD-015)
+
+Variables que existen hoy (`.env.example`) más `LANGCHAIN_TRACING_V2`. Obligatoria solo `DATABASE_URL` (URL `postgres`/`postgresql`). Con defecto: `WORKER_CONCURRENCY=1`, `WORKER_HEARTBEAT_MS=15000`, `WORKER_STALE_MS=60000`, `SHUTDOWN_GRACE_MS=30000`, `LOG_LEVEL=info` (niveles de pino), **`LANGCHAIN_TRACING_V2`** `z.enum(["true", "false"]).default("false")` (string, tal como lo lee LangChain). Opcionales sin defecto (en `.env.example`, `OLLAMA_BASE_URL`, `AGENTLAB_PROVIDER` y `DATABASE_URL_TEST` traen valores **de ejemplo**, no defaults de `env.ts` — OD-018; el resto van vacías): `DATABASE_URL_TEST`, `OLLAMA_BASE_URL`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `AGENTLAB_PROVIDER` (`fake|openai-compatible|gemini`), `OPENROUTER_API_KEY`, `GEMINI_API_KEY`. `""` = no definida. Las claves siguen en `Env` (OD-G (a), decidido), pero los adaptadores las obtienen **solo** con `SecretResolver` (OD-017), que únicamente resuelve estas dos (únicas `*_API_KEY` declaradas).
 
 ## Pasos
 
-0. **devops** (scope ampliado, deps aprobadas), en `node:22` con store fuera del repo: `pnpm add -w -D -E vitest@5.0.5 @vitest/coverage-v8@5.0.5 vite@8.3.4` y `pnpm --filter @agentlab/core add -E zod@4.6.7`; comprobar cero avisos de peers y `pnpm why vite` = 8.3.4 única. → `package.json`, `packages/core/package.json` (`dependencies`), `pnpm-lock.yaml`.
+0. **devops** (scope ampliado, deps aprobadas), en `node:22` con store fuera del repo: `pnpm add -w -D -E vitest@5.0.5 @vitest/coverage-v8@5.0.5 vite@8.3.4` y `pnpm --filter @agentlab/core add -E zod@4.6.7`; `engines.node` de la raíz → `">=22.12 <23"`; comprobar cero avisos de peers y `pnpm why vite` = 8.3.4 única. → `package.json`, `packages/core/package.json` (`dependencies`), `pnpm-lock.yaml`.
 1. **core-dev**: herramientas del paquete. → `packages/core/package.json` (scripts `typecheck` = `tsc --noEmit && tsc --noEmit -p tsconfig.config.json`, `test` = `vitest run --coverage`), `packages/core/tsconfig.config.json`, `packages/core/vitest.config.ts`. `tsconfig.json` sin cambios.
 2. Estados de run. → `src/run-status.ts`, `src/run-status.test.ts`.
 3. Errores. → `src/errors.ts`, `src/errors.test.ts`.
@@ -186,32 +258,40 @@ Variables de entorno que existen hoy (`.env.example`; SPEC/ARCH no añaden otras
 5. Definiciones y petición. → `src/agent-definition.ts`, `src/team-definition.ts`, `src/run-request.ts` (+ tests).
 6. Eventos. → `src/run-event.ts`, `src/run-event.test.ts`.
 7. Interfaces (solo tipos). → `src/model-provider.ts`, `src/tool.ts`, `src/contracts.test.ts` (aserciones de tipos frente a los literales de §3.1/§3.3).
-8. Entorno. → `src/env.ts`, `src/env.test.ts`.
+8. Entorno y secretos (`EnvSchema`, `loadEnv`, `SecretResolver`, `createSecretResolver`). → `src/env.ts`, `src/env.test.ts`.
 9. API pública. → `src/index.ts`, `src/index.test.ts` (los exports de valor existen; el test sirve de inventario).
 10. Validación en `node:22` (comando de TASK-001 con `--frozen-lockfile`): `pnpm -r typecheck`, `pnpm -r lint`, `pnpm test`, `pnpm format:check`; `pnpm --filter @agentlab/core list --prod` muestra solo `zod`. Formatear con `pnpm exec prettier --write packages/core`.
-11. **architect** tras el cierre (scope aparte): fila `zod 4.6.7` en ARCHITECTURE §9 y, si se aprueba OD-D, corrección de ARCH §4 (eventos).
+11. ~~**architect**: ARCHITECTURE §9~~ **Hecho** en el ajuste del 2026-10-20 (filas `zod`, `vitest`, `@vitest/coverage-v8`, `vite`, `engines`). ARCH §4 **no** se toca (OD-012).
 
 ## Tests (unitarios, sin red ni DB; Vitest 5 + v8)
 
 - `run-status`: tabla exhaustiva 7×7 = 49 casos (`it` por par) contra la lista literal de 10 pares de §5 escrita en el test, independiente de la implementación; `isTerminalRunStatus` para los 7 estados; ningún terminal tiene salida.
-- Esquemas: cada uno acepta un ejemplo canónico y rechaza al menos campo obligatorio ausente, clave desconocida y valor fuera de rango/enum. `RunRequest` rechaza un `budget` inyectado. `AgentDefinition` rechaza `promptVersion` no semver y `role` fuera de §4.2.
-- `RunEventSchema`: `RUN_EVENT_TYPES` es exactamente el conjunto literal de SPEC §8 (13); un evento válido por tipo (`it.each`); rechaza tipo desconocido, `seq` 0 o no entero, `ts` sin formato ISO y payload de otro tipo.
+- Esquemas: cada uno acepta un ejemplo canónico y rechaza al menos campo obligatorio ausente, clave desconocida y valor fuera de rango/enum. `RunRequest` rechaza un `budget` inyectado. `AgentDefinition` rechaza `promptVersion` no semver y `role` fuera de §4.2. `TeamDefinition` rechaza `coordination` (clave desconocida). Ids: aceptan un `crypto.randomUUID()` y rechazan un string no UUID.
+- `RunEventSchema`: `RUN_EVENT_TYPES` es exactamente el conjunto literal de SPEC §8 (**15**, incluidos `run.partial` y `run.resumed`); un evento válido por tipo (`it.each` sobre los 15); rechaza tipo desconocido, `seq` 0 o no entero, `ts` sin formato ISO, payload de otro tipo y `run.partial` sin `partialReason`.
 - Errores: `instanceof AgentLabError` y de su clase, `code`, `retryable`, `cause` conservado, `name`, `retryAfterMs`, `limit`.
-- `env`: falta `DATABASE_URL` → `EnvValidationError` cuyo mensaje nombra la variable; valores por defecto; `""` = no definida; número inválido; enum inválido; el mensaje **no contiene el valor** recibido (canario no secreto, p. ej. `"not-a-url-canary-123"`); una prueba con `vi.stubEnv` cubre el parámetro por defecto.
+- `env`: falta `DATABASE_URL` → `EnvValidationError` cuyo mensaje nombra la variable; valores por defecto; `""` = no definida; número inválido; enum inválido; el mensaje **no contiene el valor** recibido (canario no secreto, p. ej. `"not-a-url-canary-123"`); `LANGCHAIN_TRACING_V2` ausente → `"false"`, `"yes"` → error; una prueba con `vi.stubEnv` cubre el parámetro por defecto.
+- `SecretResolver` (DoD: nunca expone valores en mensajes de error; allowlist de OD-017), todo con una fuente que **sí contiene** cada nombre probado: `OPENROUTER_API_KEY` y `GEMINI_API_KEY` presentes → su valor; ausentes o `""` → `undefined`; `*_API_KEY` válido por patrón pero **no declarado** (p. ej. `ANTHROPIC_API_KEY`) → `undefined`; `DATABASE_URL`, `DATABASE_URL_TEST`, `PATH`, `HOME` y `LANGCHAIN_TRACING_V2` → `undefined` aunque estén en la fuente; minúsculas (`openrouter_api_key`), mezcla (`Gemini_API_KEY`) o sin sufijo (`OPENROUTER`, `OPENROUTER_API_KEYS`, `OPENROUTER_API_KEY_OLD`) → `undefined`; regex anclada: `X_OPENROUTER_API_KEY`, `" GEMINI_API_KEY"`, `"GEMINI_API_KEY\n"` y `"FOO\nGEMINI_API_KEY"` → `undefined`; nombres del prototipo (`"toString"`) → `undefined`; inventario: el conjunto resoluble derivado de `EnvSchema` es exactamente `{OPENROUTER_API_KEY, GEMINI_API_KEY}` (falla si alguien declara otra variable que case el patrón sin revisarlo); nunca lanza (`expect(() => …).not.toThrow()` con entradas raras); refleja cambios de la fuente (lectura por llamada); con canarios en `OPENROUTER_API_KEY`/`GEMINI_API_KEY` y `DATABASE_URL` ausente, el mensaje de `EnvValidationError` no contiene ningún canario; `vi.stubEnv` cubre el defecto `process.env`.
 - Tipos: `expectTypeOf` (lo verifica `tsc` en `typecheck`, porque los tests están en `src`).
 - Cobertura: umbrales globales 90 % en `vitest.config.ts`; `pnpm test` en `node:22` sin PostgreSQL (core no lo necesita; no requiere `docker compose`).
 
 ## Riesgos
 
 - Vitest 5 tiene 7 semanas (5.0.0 el 2026-09-03). Si aparece un bloqueo, la alternativa es `vitest`/`@vitest/coverage-v8` `4.1.12` (rama `V4` mantenida, sin `vite` explícito).
-- `vitest`/`vite` exigen Node ≥ 22.12 y `engines` raíz admite `>=22 <23`: con `engine-strict` un Node 22.0–22.11 falla al instalar. `node:22` (22.23.2) cumple. Afinar `engines` es de devops, fuera de esta tarea.
+- `vitest`/`vite` exigen Node ≥ 22.12: resuelto en el paso 0 (`engines.node` `>=22.12 <23`, decisión humana). `node:22` (22.23.2) cumple; un Node local 22.0–22.11 dejará de instalar.
 - Zod duplicado cuando entre `@langchain/core` (su dependencia `^3.25.76 || ^4` podría resolver un 4.x más nuevo) → dos instancias de Zod. TASK-013 debe comprobarlo con `pnpm why zod` (o `pnpm.overrides`), igual que con `@langchain/core`.
-- `Env` contendrá las API keys si OD-G las incluye: quien registre el objeto completo las filtra. Mitigación: mensajes de error sin valores (test) y nota para TASK-010/TASK-027 (`redactSecrets`).
-- TASK-010 dice "`apiKey` leído de `process.env[apiKeyEnv]`" y monorepo-conventions dice "`process.env` solo en `core/env.ts`": contradicción a resolver al planificar TASK-010 (fuera de esta tarea).
+- `Env` contiene las API keys (OD-G (a)): quien registre el objeto completo las filtra. Mitigación: mensajes de error sin valores (test), adaptadores solo vía `SecretResolver` y nota para TASK-010/TASK-027 (`redactSecrets`).
+- ~~Contradicción TASK-010 / `process.env`~~: resuelta por OD-017 (`SecretResolver` inyectado; TASK-010 ya actualizada por el Orchestrator).
+- ~~`SecretResolver` resuelve cualquier nombre~~ (p. ej. `api_key_env` = `DATABASE_URL`): **mitigado** por la allowlist de OD-017 (patrón `*_API_KEY` + declarado en `EnvSchema`; tests de arriba).
+- Consecuencia de la allowlist: un `provider_configs.api_key_env` con un nombre no declarado resuelve `undefined` y el adaptador de TASK-010 debe fallar con `ProviderAuthError` que cite el **nombre** (nunca un valor). Una clave de proveedor nueva exige tocar `EnvSchema` en `packages/core/**`.
+- La allowlist se deriva de `EnvSchema.shape`: si `EnvSchema` deja de ser un `z.object` plano (p. ej. un `.transform` global), `shape` desaparece y typecheck lo detecta; en ese caso derivar de una constante de claves. Hoy los `""` → `undefined` se tratan por campo.
 - `z.uuid()` de Zod 4 valida RFC 9562 estricto: los fixtures deben usar UUID válidos (`gen_random_uuid()` genera v4 válidos).
-- Cualquier cambio posterior de contratos (p. ej. `Message` con rol `tool` en M4, `LANGCHAIN_TRACING_V2` en TASK-013) exige scope de `packages/core/**` en esa tarea.
+- Cualquier cambio posterior de contratos (p. ej. `Message` con rol `tool` en M4, `coordination` en TASK-034) exige scope de `packages/core/**` en esa tarea.
 
 ## OPEN DECISIONS
+
+~~**Abierta tras el ajuste**: ¿restringe `SecretResolver` los nombres resolubles? (a) cualquier nombre; (b) lista negra de no secretos de `EnvSchema`; (c) solo sufijo `_API_KEY`. Recomendaba (b).~~ **RESUELTA (2026-10-20) dentro de OD-017**: (c) con precisión: `^[A-Z][A-Z0-9_]*_API_KEY$` **y** declarado en `EnvSchema`; (a) y (b) descartadas (recomendación (b) rechazada: falla por omisión). Ver decisión 12. Ninguna OPEN DECISION abierta en este plan.
+
+**Registro de las 8 decisiones del plan original (todas RESUELTAS 2026-10-20; ver "Decisiones humanas")**: OD-A → OD-009 · OD-B → OD-010 · OD-C → OD-011 · OD-D → OD-012 (**recomendación rechazada**: 15 eventos) · OD-E → OD-013 · OD-F → OD-014 (sin opcionales "por si acaso") · OD-G → OD-015 (+ `LANGCHAIN_TRACING_V2`) · OD-H → OD-016. El texto siguiente se conserva como registro de la propuesta.
 
 - **OD-A — Dónde van Vitest y compañía.** (a) Raíz `devDependencies` (como TypeScript/ESLint en TASK-001): versión única, los paquetes siguientes (persistence, policies, providers…) no necesitan `deps_allowed` nuevo; requiere paso 0 de devops. (b) `packages/core/devDependencies`: core-dev lo hace todo, solo amplía `pnpm-lock.yaml`; cada paquete futuro repite tres devDependencies con la misma versión exacta. **Recomiendo (a)** con Vitest 5.0.5 + vite 8.3.4 + coverage-v8 5.0.5.
 - **OD-B — Formato de identificadores.** SPEC §4.4 dice `string`; las tablas usan `uuid`. (a) `z.uuid()` para `id`, `runId`, `projectId`, `teamId`, `agentIds[]`, `providerId` (referencia a `provider_configs.id`); `modelId` = string no vacío. (b) string no vacío en todos. **Recomiendo (a)**. Consecuencia: el equipo de ejemplo de TASK-012 necesitará UUID fijos.

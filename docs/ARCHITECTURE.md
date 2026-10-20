@@ -207,12 +207,12 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 
 | Herramienta | Versión | Fijada en |
 |---|---|---|
-| Node.js | 22 LTS | `.nvmrc`, Dockerfiles |
+| Node.js | 22 LTS (`engines.node` `>=22.12 <23` desde TASK-004: lo exigen `vitest` 5 y `vite` 8) | `.nvmrc`, Dockerfiles, `engines` en `package.json` |
 | pnpm | 9.x | `packageManager` en `package.json` |
 | TypeScript | 5.x strict (`5.9.3`, con `@types/node` 22.x) | `tsconfig.base.json` |
 | PostgreSQL | 16 | `compose.yaml` |
 
-Dependencias de runtime fijadas por OD-001 (TASK-002, ADR-002, verificadas con `npm view` el 2026-10-20). Versión exacta, sin `^`, idéntica en todos los workspaces que la usen.
+Dependencias fijadas por OD-001 (TASK-002, ADR-002) y por TASK-004 (OD-009), verificadas con `npm view` el 2026-10-20. Versión exacta, sin `^`, idéntica en todos los workspaces que la usen.
 
 | Paquete | Versión | Workspace | Razón |
 |---|---|---|---|
@@ -226,8 +226,12 @@ Dependencias de runtime fijadas por OD-001 (TASK-002, ADR-002, verificadas con `
 | `@types/pg` | `8.23.1` | `persistence` (dev) | Tipos de `pg` |
 | `next` | `16.4.2` | `web` | Última estable; Node ≥20.9, TS ≥5.1; Route Handlers con `ReadableStream` para SSE |
 | `tsx` | `4.23.15` | `apps/worker` (`dependencies`) | ADR-009 (OD-007): ejecuta el worker sin build en dev y en Docker |
+| `zod` | `4.6.7` | `packages/core` (`dependencies`) | Compatible con `^3.25.32 \|\| ^4.2.0` (peer de `@langchain/langgraph` 1.5.1) y `^3.25.76 \|\| ^4` (dependencia de `@langchain/core` 1.2.18); `z.toJSONSchema` nativo; TASK-004 |
+| `vitest` | `5.0.5` | raíz (dev) | Runner de tests (OD-009); engines `^22.12.0 \|\| ^24 \|\| >=26`; TASK-004 |
+| `@vitest/coverage-v8` | `5.0.5` | raíz (dev) | Cobertura v8; peer `vitest 5.0.5` exacto; TASK-004 |
+| `vite` | `8.3.4` | raíz (dev) | Peer obligatorio de `vitest` 5, declarado explícitamente; TASK-004 |
 
-Compatibilidad: peers verificados con `npm view` y release coordinado langgraphjs #2961 (2026-10-12); fuentes en ADR-002. `@langchain/langgraph-checkpoint` y `@langchain/core` resuelven a una sola versión exacta (`1.2.0` y `1.2.18`) en `persistence` y `orchestrator`: TASK-013 elige el mecanismo (declaración exacta en ambos `package.json` o `pnpm.overrides` en la raíz) y TASK-023 lo comprueba con `pnpm why`. `zod` se fija en TASK-004 y `react`/`react-dom`/`tailwindcss` en TASK-007 (no decididas aún). Subir cualquiera de estas versiones es una tarea propia que vuelve a verificar la compatibilidad.
+Compatibilidad: peers verificados con `npm view` y release coordinado langgraphjs #2961 (2026-10-12); fuentes en ADR-002. `@langchain/langgraph-checkpoint` y `@langchain/core` resuelven a una sola versión exacta (`1.2.0` y `1.2.18`) en `persistence` y `orchestrator`: TASK-013 elige el mecanismo (declaración exacta en ambos `package.json` o `pnpm.overrides` en la raíz) y TASK-023 lo comprueba con `pnpm why`. `zod` queda fijado en TASK-004; cuando entre `@langchain/core` (TASK-013), `pnpm why zod` debe mostrar una sola instancia (`4.6.7`). `react`/`react-dom`/`tailwindcss` se fijan en TASK-007 (no decididas aún). Subir cualquiera de estas versiones es una tarea propia que vuelve a verificar la compatibilidad.
 
 ## 10. Convenciones de código
 
