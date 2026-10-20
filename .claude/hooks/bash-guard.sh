@@ -70,7 +70,26 @@ done || exit 2
 allow_scope="$(scope_get allow)"
 if [ -n "$allow_scope" ] && [ "$allow_scope" != "*" ]; then
   curdir="$ROOT"
-  segs2="$flat"; segs2="${segs2//&&/$'\n'}"; segs2="${segs2//||/$'\n'}"; segs2="${segs2//;/$'\n'}"; segs2="${segs2//|/$'\n'}"
+  # Se descartan los cuerpos de heredoc y el texto entre comillas: un ">=22.12" dentro de un
+  # mensaje de commit o de un echo no es una redirección.
+  sanitized="$(printf '%s' "$cmd" | python3 -I -c '
+import re,sys
+src=sys.stdin.read()
+out=[]; lines=src.split("\n"); i=0
+while i<len(lines):
+    ln=lines[i]
+    m=re.search(r"<<-?\s*([\x27\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", ln)
+    if m:
+        tag=m.group(2); out.append(ln[:m.start()]+" "+ln[m.end():]); i+=1
+        while i<len(lines) and lines[i].strip()!=tag: i+=1
+        i+=1; continue
+    out.append(ln); i+=1
+s=" ".join(out)
+s=re.sub(r"\x27[^\x27]*\x27"," ",s)
+s=re.sub(r"\"(?:[^\"\\\\]|\\\\.)*\""," ",s)
+sys.stdout.write(s)
+' 2>/dev/null || printf '%s' "$flat")"
+  segs2="$sanitized"; segs2="${segs2//&&/$'\n'}"; segs2="${segs2//||/$'\n'}"; segs2="${segs2//;/$'\n'}"; segs2="${segs2//|/$'\n'}"
   while IFS= read -r seg; do
     seg="${seg#"${seg%%[![:space:]]*}"}"
     targets=""
