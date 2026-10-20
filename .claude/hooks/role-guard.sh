@@ -23,7 +23,7 @@ case "$role" in
   providers-dev) allow=$'packages/providers/**' ;;
   engine-dev)   allow=$'packages/orchestrator/**\npackages/agents/**\npackages/tools/**\npackages/evaluations/**\napps/worker/**\ndatasets/**' ;;
   web-dev)      allow=$'apps/web/**' ;;
-  devops)       allow=$'package.json\npnpm-workspace.yaml\npnpm-lock.yaml\nturbo.json\ntsconfig*.json\n.eslintrc*\neslint.config.*\n.prettierrc*\n.editorconfig\n.nvmrc\nMakefile\ncompose*.yaml\ncompose*.yml\ndocker/**\n.gitlab-ci.yml\n.github/**\nscripts/**\n.env.example\n.dockerignore\n.gitignore\napps/*/package.json\npackages/*/package.json\napps/*/tsconfig*.json\npackages/*/tsconfig*.json\napps/*/Dockerfile\nvitest.workspace.*\napps/*/src/index.ts\npackages/*/src/index.ts' ;;
+  devops)       allow=$'package.json\npnpm-workspace.yaml\npnpm-lock.yaml\n.npmrc\nturbo.json\ntsconfig*.json\n.eslintrc*\neslint.config.*\n.prettierrc*\n.editorconfig\n.nvmrc\nMakefile\ncompose*.yaml\ncompose*.yml\ndocker/**\n.gitlab-ci.yml\n.github/**\nscripts/**\n.env.example\n.dockerignore\n.gitignore\napps/*/package.json\npackages/*/package.json\napps/*/tsconfig*.json\npackages/*/tsconfig*.json\napps/*/Dockerfile\nvitest.workspace.*\napps/*/src/index.ts\npackages/*/src/index.ts' ;;
   tester)       allow=$'**/*.test.ts\n**/*.test.tsx\ntests/**\n**/testing/**\n**/__fixtures__/**\nvitest.config.*\nvitest.workspace.*\npackages/*/vitest.config.*\napps/*/vitest.config.*\ndocs/reports/M*-closure.md' ;;
   docs-keeper)  allow=$'docs/**\nREADME.md\nexamples/**\nLICENSE\nNOTICE\n**/README.md\nSECURITY.md' ;;
   reviewer|security|committer) allow='' ;;
