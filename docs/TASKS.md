@@ -4,7 +4,7 @@
 |---|---|
 | Última actualización | 2026-10-20 (cierre TASK-001) |
 | Hito actual | M0 |
-| Tareas READY | TASK-004 |
+| Tareas READY | TASK-003, TASK-004 |
 
 ## Cómo se lee este documento
 
@@ -46,8 +46,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - OD-001 marcada como resuelta en SPEC §13.
 
 ### TASK-003 · Docker Compose: web, worker, db (+ perfil local con ollama)
-- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-001, OD-007
+- **Estado**: READY · **Owner**: devops · **Depende de**: TASK-001, OD-007 (decidida: ADR-009)
 - **Scope**: `compose.yaml`, `compose.override.example.yaml`, `docker/web.Dockerfile`, `docker/worker.Dockerfile`, `docker/postgres/init.sql`, `.env.example`, `.dockerignore`, `Makefile`
+- **Dependencias autorizadas**: `tsx` 4.23.15 exacta, en `dependencies` de `apps/worker` (ADR-009). ⚠️ El scope no incluye aún `apps/worker/package.json` ni `pnpm-lock.yaml`: pendiente de decisión humana antes de `/execute-task`.
 - **DoD**:
   - `docker compose up --build` levanta `db`, `web`, `worker`; `db` solo en red interna; `web` en `3000`.
   - `docker compose --profile local up` añade `ollama` sin puerto en host.
@@ -108,8 +109,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `next.config.ts` convive con `rootDir: src`: rootDir se mantiene; decidir include/tsconfig aparte (TD-010).
 
 ### TASK-008 · apps/worker: bucle de reclamación vacío con heartbeat y apagado limpio
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005, OD-007
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005
 - **Scope**: `apps/worker/**`
+- **Dependencias autorizadas**: `tsx` 4.23.15 exacta, en `dependencies` de `apps/worker` (ADR-009); scripts `dev` = `tsx watch src/index.ts`, `start` = `tsx src/index.ts`.
 - **DoD**:
   - Bucle `claimNext` → ejecuta un `RunExecutor` inyectable (en M0: no-op que marca `completed`) → `finalize`.
   - Heartbeat cada 15 s mientras hay run activo.
@@ -329,3 +331,5 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-20 | TASK-002 commit 48eee1f |
 | 2026-10-20 | TASK-001: tester PASS (ciclo 0); reviewer CHANGES_REQUESTED (1 MAJOR: imports relativos entre paquetes) → corrección 2/3 (`rootDir: src`, `globalDependencies`); tester PASS y reviewer APPROVED (ciclo 2); security no aplica. TASK-001 → REVIEW. |
 | 2026-10-20 | TASK-001 → DONE (tester PASS, reviewer APPROVED; ciclos de corrección 2). Informe en docs/reports/TASK-001.md. TASK-004 → READY. TASK-040 creada. Deuda TD-006…TD-010. |
+| 2026-10-20 | TASK-001 commit 4a12555 |
+| 2026-10-20 | OD-007 decidida por el humano: tsx (ADR-009 Proposed). TASK-003 → READY (scope pendiente: apps/worker/package.json, pnpm-lock.yaml); TASK-008 sin OD-007 (sigue BLOCKED por TASK-005). `tsx` 4.23.15 en deps autorizadas de ambas. |

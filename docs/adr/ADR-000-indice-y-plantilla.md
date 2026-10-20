@@ -18,6 +18,7 @@
 | ADR-006 | Sistema de agentes de desarrollo con Claude Code y política de commits | Accepted |
 | ADR-007 | PostgreSQL como fuente de verdad; eventos con `seq` y `LISTEN/NOTIFY` | Accepted |
 | ADR-008 | Licencia Apache-2.0 | Proposed (se acepta en M5) |
+| ADR-009 | Ejecución de TypeScript en runtime con tsx | Proposed |
 
 ## Reglas
 
