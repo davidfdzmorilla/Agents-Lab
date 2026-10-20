@@ -1,0 +1,294 @@
+# AgentLab — Tareas
+
+| Campo | Valor |
+|---|---|
+| Última actualización | 2026-10-20 (creación) |
+| Hito actual | M0 |
+| Tareas READY | TASK-001, TASK-002 |
+
+## Cómo se lee este documento
+
+- **Estados**: `BLOCKED` (dependencias sin cerrar) · `READY` (puede empezar) · `IN_PROGRESS` (una sola a la vez salvo autorización) · `REVIEW` (implementada; faltan veredictos) · `DONE` (tester PASS + reviewer APPROVED + security cuando aplica + informe en `docs/reports/TASK-NNN.md`) · `CANCELLED`.
+- **Owner**: subagente de desarrollo que implementa (ver `AGENTS.md`). El Orchestrator (sesión) nunca es owner.
+- **Scope**: rutas que la tarea puede tocar. El hook de scope bloquea cualquier edición fuera de ellas. `docs/**` siempre está permitido para `docs-keeper`.
+- **DoD**: cada viñeta debe ser verificable por el `tester` o, si no es automatizable, documentada en el informe de cierre.
+- Una tarea `DONE` no se reabre: se crea una tarea `fix` nueva que la referencia.
+- Lo que no está definido en SPEC/ARCHITECTURE no se inventa: se registra como `OPEN DECISION` (SPEC §13) y la tarea queda `BLOCKED` si depende de ello.
+
+Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
+
+---
+
+## M0 — Base
+
+### TASK-001 · Monorepo pnpm + Turborepo + TypeScript estricto
+- **Estado**: READY · **Owner**: devops · **Depende de**: —
+- **Scope**: `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.nvmrc`, `.eslintrc.cjs`, `.prettierrc`, `.editorconfig`, `.gitignore`, `apps/web/package.json`, `apps/worker/package.json`, `packages/core/package.json`, `packages/persistence/package.json`, `Makefile`
+- **DoD**:
+  - `pnpm install` en limpio sin warnings de peer deps.
+  - `pnpm -r typecheck` y `pnpm -r lint` pasan con los cuatro workspaces vacíos (un `index.ts` cada uno).
+  - `tsconfig.base.json` con `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `moduleResolution: bundler`, ESM.
+  - Regla ESLint `no-restricted-imports` que prohíbe `@agentlab/*/src/*`.
+  - `turbo.json` con pipelines `build`, `lint`, `typecheck`, `test` y dependencias `^build`.
+
+### TASK-002 · Resolver OD-001: versiones de LangGraph.js, checkpointer PostgreSQL, Drizzle, Next.js
+- **Estado**: READY · **Owner**: architect · **Depende de**: —
+- **Scope**: `docs/ARCHITECTURE.md` (§9), `docs/adr/ADR-002-*.md`, `docs/TECHNICAL_SPEC.md` (§13 únicamente)
+- **DoD**:
+  - Tabla de versiones en `ARCHITECTURE.md §9` con la versión exacta y la razón.
+  - Verificado que el checkpointer PostgreSQL elegido es compatible con la versión de LangGraph.js elegida (enlace a la documentación o al changelog).
+  - Verificado que Next.js elegido soporta Route Handlers con `ReadableStream` para SSE.
+  - ADR-002 actualizado de `Proposed` a `Accepted` **solo tras aprobación humana**.
+  - OD-001 marcada como resuelta en SPEC §13.
+
+### TASK-003 · Docker Compose: web, worker, db (+ perfil local con ollama)
+- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-001
+- **Scope**: `compose.yaml`, `compose.override.example.yaml`, `docker/web.Dockerfile`, `docker/worker.Dockerfile`, `docker/postgres/init.sql`, `.env.example`, `.dockerignore`, `Makefile`
+- **DoD**:
+  - `docker compose up --build` levanta `db`, `web`, `worker`; `db` solo en red interna; `web` en `3000`.
+  - `docker compose --profile local up` añade `ollama` sin puerto en host.
+  - Dockerfiles multi-stage con `pnpm fetch` cacheado; usuario no root.
+  - `init.sql` crea bases `agentlab` y `agentlab_test`.
+  - `.env.example` sin ningún valor secreto; todas las variables documentadas en una línea.
+  - `make up`, `make down`, `make logs`, `make test` funcionan.
+
+### TASK-004 · packages/core: esquemas Zod, errores tipados, env
+- **Estado**: BLOCKED · **Owner**: core-dev · **Depende de**: TASK-001
+- **Scope**: `packages/core/**`
+- **DoD**:
+  - Esquemas: `AgentDefinitionSchema`, `TeamDefinitionSchema`, `RunRequestSchema`, `RunEventSchema` (discriminated union con los 13 tipos de SPEC §8), `BudgetSchema`, `AgentInvocationResultSchema`, `ProviderCapabilitiesSchema`.
+  - Interfaces `ModelProvider`, `Tool`, `GenerateRequest/Response` exactamente como `ARCHITECTURE.md §3`.
+  - `AgentLabError` base con `code`, `retryable`, `cause`; subclases de proveedor y presupuesto.
+  - `env.ts` con esquema Zod; `loadEnv()` falla con mensaje claro si falta una variable.
+  - Estados de run y transiciones válidas como función pura `canTransition(from, to)` con test exhaustivo (tabla de `ARCHITECTURE.md §5`).
+  - Cobertura de tests ≥ 90 % en `core`.
+  - Cero dependencias de runtime salvo `zod`.
+
+### TASK-005 · packages/persistence: Drizzle, migración inicial, repositorios base
+- **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-003, TASK-004
+- **Scope**: `packages/persistence/**`, `drizzle.config.ts`
+- **DoD**:
+  - Esquema Drizzle con las 11 tablas de `ARCHITECTURE.md §6`, columnas obligatorias, índices y `unique(run_id, seq)`.
+  - Migración `0000_init.sql` generada y aplicable con `pnpm db:migrate`; `pnpm db:reset` recrea `agentlab_test`.
+  - `RunsRepository` (`create`, `get`, `claimNext` con `SKIP LOCKED`, `transition` que respeta `canTransition`, `heartbeat`), `EventsRepository` (`append` con `seq` atómico, `listSince(runId, seq)`), `ProjectsRepository`, `AgentDefinitionsRepository`.
+  - `transition` a un estado inválido lanza `InvalidTransitionError` (409 en API).
+  - Tests de integración contra PostgreSQL real; `claimNext` probado con dos llamadas concurrentes que no reclaman el mismo run.
+  - `provider_configs.api_key_env` es `text`; test que falla si se intenta guardar un valor que parezca una clave (`sk-`, `AIza`, longitud > 40 sin espacios).
+
+### TASK-006 · CI: lint, typecheck, test contra PostgreSQL de servicio
+- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-005, OD-004
+- **Scope**: `.gitlab-ci.yml` o `.github/workflows/ci.yml` (según OD-004), `Makefile`, `scripts/ci/**`
+- **DoD**:
+  - Pipeline con jobs `lint`, `typecheck`, `test` (PostgreSQL 16 como servicio), caché de pnpm.
+  - El pipeline falla si `pnpm audit --audit-level=high` reporta vulnerabilidades.
+  - Job `secrets-scan` que ejecuta `scripts/ci/check-no-secrets.sh` (mismas reglas que `.githooks/pre-commit`).
+  - Badge o enlace en README.
+
+### TASK-007 · apps/web: esqueleto Next.js + `GET /api/health`
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-005
+- **Scope**: `apps/web/**`
+- **DoD**:
+  - App Router, Tailwind, layout base, página `/` con texto "AgentLab" y enlace a `/projects`.
+  - `GET /api/health` → `{ ok: true, db: "up", version }`; `{ ok: false, db: "down" }` con 503 si PostgreSQL no responde en 2 s.
+  - Handler usa `persistence` vía `@agentlab/persistence`; sin SQL inline.
+  - Test del handler con PostgreSQL arriba y abajo.
+
+### TASK-008 · apps/worker: bucle de reclamación vacío con heartbeat y apagado limpio
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005
+- **Scope**: `apps/worker/**`
+- **DoD**:
+  - Bucle `claimNext` → ejecuta un `RunExecutor` inyectable (en M0: no-op que marca `completed`) → `finalize`.
+  - Heartbeat cada 15 s mientras hay run activo.
+  - `SIGTERM` espera al run actual hasta `SHUTDOWN_GRACE_MS` y sale con código 0.
+  - Test: crear run `queued` en DB, arrancar worker en proceso hijo, verificar `completed` y heartbeat actualizado.
+
+### TASK-009 · README con instalación desde cero + cierre de M0
+- **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-001…TASK-008
+- **Scope**: `README.md`, `docs/reports/M0-closure.md`, `docs/TASKS.md`, `docs/ROADMAP.md`
+- **DoD**:
+  - README: requisitos, `make up`, verificación de `/api/health`, cómo ejecutar tests, estructura del repo, enlace a `docs/`.
+  - `docs/reports/M0-closure.md` con el criterio de salida de M0 verificado literalmente (comandos y salida).
+  - Humano acepta el cierre.
+
+## M1 — MVP
+
+### TASK-010 · packages/providers: interfaz + adaptador OpenAI-compatible + FakeProvider
+- **Estado**: BLOCKED · **Owner**: providers-dev · **Depende de**: TASK-004
+- **Scope**: `packages/providers/**`
+- **DoD**:
+  - `OpenAICompatibleProvider({ baseUrl, apiKeyEnv, capabilities })` sobre el SDK de OpenAI; `apiKey` leído de `process.env[apiKeyEnv]` en construcción y nunca expuesto en propiedades enumerables ni en `toJSON`.
+  - Timeout por petición vía `AbortSignal`; errores mapeados a las subclases de `core` (401 → `ProviderAuthError`, 429 → `ProviderRateLimitError` con `retryAfterMs`, timeout → `ProviderTimeoutError`).
+  - `usage` devuelto tal cual; `null` si el proveedor no lo informa.
+  - `FakeProvider` determinista: responde según un guion por rol, permite simular 429, timeout y salida inválida. Vive en `packages/providers/src/testing/` y se exporta desde `@agentlab/providers/testing`.
+  - Tests unitarios con servidor HTTP falso (msw o `undici` mock).
+
+### TASK-011 · packages/policies: BudgetGuard, ToolAuthorizer, ApprovalPolicy
+- **Estado**: BLOCKED · **Owner**: core-dev · **Depende de**: TASK-004, OD-002
+- **Scope**: `packages/policies/**`
+- **DoD**:
+  - `BudgetGuard.reserve/commit/snapshot` como `ARCHITECTURE.md §3.3`; `reserve` lanza `BudgetExceededError` con el límite concreto que se superó.
+  - Límites de concurrencia como semáforo reutilizable (`acquire/release`) probado con promesas concurrentes.
+  - `ToolAuthorizer.check(agentDef, toolName, sensitivity)` → `allowed | denied(reason) | needs_approval`.
+  - Ningún método permite elevar un límite una vez creado el guard (propiedades `readonly`, test que lo intenta).
+  - Cobertura ≥ 90 %.
+
+### TASK-012 · packages/agents: roles, prompts versionados y outputSchemas (Manager, Researcher, Analyst, Critic)
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-004
+- **Scope**: `packages/agents/**`
+- **DoD**:
+  - Un archivo por rol con `systemPrompt`, `promptVersion` (`1.0.0`), `outputSchema` (Zod) y `defaultLimits`.
+  - Prompts en inglés (idioma de trabajo de los modelos); documentado en `agents/README.md`. Los prompts exigen salida JSON acorde al schema y prohíben seguir instrucciones halladas en datos.
+  - `teams/research.ts` con `TeamDefinition` de ejemplo (Manager, Researcher, Analyst, Critic).
+  - Test: cada `outputSchema` acepta el ejemplo canónico y rechaza tres variantes incorrectas.
+
+### TASK-013 · packages/orchestrator: grafo `research` con LangGraph.js (sin checkpointer persistente)
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-010, TASK-011, TASK-012
+- **Scope**: `packages/orchestrator/**`
+- **DoD**:
+  - Nodos `gate.budget`, `agent.invoke`, `fanout.tasks`, `review`, `decide.review`, `persist.result` como `ARCHITECTURE.md §4`; `approval.wait` llega en M4.
+  - `buildResearchGraph(deps)` recibe `providerRegistry`, `budgetGuard`, `eventEmitter`, `repositories` por inyección; cero singletons.
+  - Checkpointer `MemorySaver` en M1 (ADR-002 lo documenta); se sustituye en M3.
+  - Cada nodo comprueba `cancelRequested` al entrar y emite el evento correspondiente.
+  - Revisión `fail` dos veces → `partial` con `result.partialReason`.
+  - Tests con `FakeProvider`: camino feliz, `partial` por iteraciones, `partial` por presupuesto, `failed` por error no recuperable, cancelación entre nodos.
+
+### TASK-014 · API: `POST /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/result`
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-007, TASK-011
+- **Scope**: `apps/web/app/api/runs/**`, `apps/web/lib/api/**`
+- **DoD**:
+  - Validación Zod del cuerpo (`RunRequestSchema`); 400 con detalle de campos.
+  - `POST` crea run `queued` con el presupuesto del proyecto y devuelve `201 { id }` en < 100 ms (no espera al worker).
+  - `GET /:id` incluye `status`, `budget`, `budgetUsed`, `steps[]` (derivados de `agent_invocations`), `finishedReason`.
+  - `GET /:id/result` → 404 si no existe, 409 si no es terminal, 200 con `result` y `status`.
+  - Tests de handler contra PostgreSQL.
+
+### TASK-015 · Worker ejecuta el grafo `research`
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-008, TASK-013
+- **Scope**: `apps/worker/**`
+- **DoD**:
+  - `RunExecutor` real que construye dependencias desde `provider_configs` del proyecto y ejecuta `buildResearchGraph`.
+  - Eventos del grafo → `EventsRepository.append`.
+  - Error no capturado en el grafo → run `failed` con `error.code`, nunca worker caído.
+  - Test de integración: run con `FakeProvider` configurado por env (`AGENTLAB_PROVIDER=fake`) termina `completed` con eventos en orden.
+
+### TASK-016 · UI: pantalla `/runs/:id` y formulario de nueva ejecución
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-014, TASK-015
+- **Scope**: `apps/web/app/(app)/**`, `apps/web/components/**`
+- **DoD**:
+  - `/projects/:id/runs/new`: textarea de petición, selector de equipo, botón "Ejecutar" → redirige a `/runs/:id`.
+  - `/runs/:id`: timeline de pasos (agente, estado, duración, tokens o "no informado"), barra de presupuesto, estado del run y motivo de finalización, resultado renderizado (Markdown) o parcial con aviso.
+  - Polling cada 2 s mientras el run no sea terminal (`TD-001` registra la sustitución por SSE en M3).
+  - Sin librerías de estado global.
+
+### TASK-017 · Tests end-to-end del MVP con FakeProvider + cierre de M1
+- **Estado**: BLOCKED · **Owner**: tester · **Depende de**: TASK-016
+- **Scope**: `tests/integration/**`, `docs/reports/M1-closure.md`
+- **DoD**:
+  - Test que levanta web + worker en proceso, crea un run por API, espera `completed` y comprueba resultado, eventos y presupuesto.
+  - Mismo test con `FakeProvider` forzando `partial` y `failed`.
+  - Ejecución manual documentada con Ollama o modelo gratuito de OpenRouter (captura de la pantalla en el informe).
+  - Humano acepta el cierre.
+
+## M2 — Modelos
+
+### TASK-018 · Adaptador Gemini (SDK Google GenAI)
+- **Estado**: BLOCKED · **Owner**: providers-dev · **Depende de**: TASK-010 · **Scope**: `packages/providers/src/gemini/**`
+- **DoD**: misma superficie que OpenAI-compatible; capacidades declaradas reales; mapeo de errores; tests con mock del SDK.
+
+### TASK-019 · ProviderRegistry, comprobación de capacidades y reintentos con backoff
+- **Estado**: BLOCKED · **Owner**: providers-dev · **Depende de**: TASK-018 · **Scope**: `packages/providers/**`
+- **DoD**: `ProviderCapabilityError` antes de red; backoff exponencial + jitter solo para `retryable`; respeta `retryAfterMs`; máximo de reintentos configurable y descontado del presupuesto de llamadas.
+
+### TASK-020 · `GET /api/providers` y selección por agente desde `provider_configs`
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-019 · **Scope**: `apps/web/app/api/providers/**`, `apps/web/app/(app)/projects/**`
+- **DoD**: lista proveedores con capacidades y modelos; test que verifica que ninguna respuesta contiene el valor de ninguna variable `*_API_KEY`.
+
+### TASK-021 · Perfil `local`: modelo Ollama por defecto (OD-005) y `docs/PROVIDERS.md`
+- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-019, OD-005 · **Scope**: `compose.yaml`, `docker/ollama/**`, `docs/PROVIDERS.md`
+- **DoD**: `make up-local` descarga el modelo y lo deja listo; guía de cuotas de OpenRouter/Gemini con fecha de consulta.
+
+### TASK-022 · Tests de contrato multi-proveedor + cierre de M2
+- **Estado**: BLOCKED · **Owner**: tester · **Depende de**: TASK-020, TASK-021 · **Scope**: `tests/integration/providers/**`, `docs/reports/M2-closure.md`
+- **DoD**: suite parametrizada fake/OpenRouter/Ollama/Gemini; se salta con aviso si faltan credenciales; criterio de salida M2 verificado.
+
+## M3 — Control
+
+### TASK-023 · Checkpointer PostgreSQL + `run_checkpoints`
+- **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-013, TASK-002 · **Scope**: `packages/persistence/src/checkpointer/**`, `packages/orchestrator/src/graph/*.ts`
+- **DoD**: `thread_id = runId`; relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio.
+
+### TASK-024 · `LISTEN/NOTIFY` + SSE real con `Last-Event-ID`
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-023 · **Scope**: `packages/persistence/src/notify/**`, `apps/web/app/api/runs/[id]/events/**`, `apps/web/components/run-timeline/**`
+- **DoD**: evento persistido antes de notificar; reconexión recupera huecos; ping cada 15 s; cierre en terminal; retira el polling (cierra TD-001).
+
+### TASK-025 · Cancelación cooperativa y `POST /resume`
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-023 · **Scope**: `packages/orchestrator/**`, `apps/web/app/api/runs/[id]/cancel/**`, `apps/web/app/api/runs/[id]/resume/**`
+- **DoD**: `AbortSignal` llega a proveedor y herramientas; 409 en transiciones inválidas; `resume` desde último checkpoint sin repetir pasos.
+
+### TASK-026 · Recuperación de runs huérfanos por heartbeat
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-025 · **Scope**: `apps/worker/**`, `packages/persistence/src/repositories/runs*.ts`
+- **DoD**: test que mata el worker (SIGKILL) a mitad de run y comprueba reanudación con `seq` continuo y sin invocaciones duplicadas.
+
+### TASK-027 · packages/observability: eventos, spans OTel, métricas, `redactSecrets`
+- **Estado**: BLOCKED · **Owner**: core-dev · **Depende de**: TASK-023 · **Scope**: `packages/observability/**`, `packages/persistence/src/redaction/**`, `compose.yaml` (perfil `observability`)
+- **DoD**: span por run/agente/herramienta; exportador OTLP opcional; `redactSecrets` + test de fuga; prompts persistidos solo tras redacción.
+
+### TASK-028 · UI: métricas por run y comparación de dos runs
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-027 · **Scope**: `apps/web/app/(app)/runs/**`, `apps/web/components/**`
+- **DoD**: `/runs/:id/compare/:otherId` muestra pasos alineados, duración, tokens, resultado de revisión.
+
+### TASK-029 · Cierre de M3
+- **Estado**: BLOCKED · **Owner**: tester · **Depende de**: TASK-024…TASK-028 · **Scope**: `tests/integration/**`, `docs/reports/M3-closure.md`
+- **DoD**: criterio de salida M3 verificado literalmente.
+
+## M4 — Extensión
+
+### TASK-030 · packages/tools: ToolRegistry, `artifact.read/write`, envoltura de resultados no confiables
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-011, OD-006 · **Scope**: `packages/tools/**`, `packages/orchestrator/src/nodes/agent-invoke.ts`
+- **DoD**: validación Zod de entrada y salida; resultado envuelto con `trust="untrusted"`; `tool_invocations` persistidas.
+
+### TASK-031 · `web.search` y `source.read` con allowlist HTTP y bloqueo SSRF
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-030 · **Scope**: `packages/tools/src/web/**`
+- **DoD**: bloqueo de `localhost`, RFC1918, link-local, metadatos cloud; resolución DNS comprobada antes de conectar; tests de SSRF; **security REQUIRED**.
+
+### TASK-032 · Aprobación humana: `approval.wait` + `awaiting_approval`
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-025, TASK-030 · **Scope**: `packages/orchestrator/**`, `packages/policies/**`, `apps/web/app/(app)/runs/**`
+- **DoD**: herramienta `sensitivity: approval` interrumpe el grafo; UI muestra la solicitud y botones aprobar/rechazar; test de que el modelo no puede autoaprobar; **security REQUIRED**.
+
+### TASK-033 · Validación de salidas estructuradas con reintento guiado
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-030 · **Scope**: `packages/orchestrator/src/nodes/agent-invoke.ts`, `packages/agents/**`
+- **DoD**: `invalid_output` → una repetición con el error de validación en el prompt; segunda falla → `agent.failed`; descuenta llamadas.
+
+### TASK-034 · Editor de equipos y agentes en la UI + builder de grafo genérico
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-033 · **Scope**: `apps/web/app/(app)/projects/**`, `apps/web/app/api/agents/**`, `apps/web/app/api/teams/**`, `packages/orchestrator/src/graph/generic.ts`
+- **DoD**: crear/editar agentes y equipos sin tocar código; `coordination jsonb` validado; ejecutar hasta `completed`.
+
+### TASK-035 · `examples/research-team` y `examples/analysis-team` + cierre de M4
+- **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-034 · **Scope**: `examples/**`, `docs/reports/M4-closure.md`
+- **DoD**: ejemplos reproducibles con Ollama; criterio de salida M4 verificado.
+
+## M5 — Calidad
+
+### TASK-036 · packages/evaluations: dataset, evaluadores, `pnpm bench`
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-035 · **Scope**: `packages/evaluations/**`, `datasets/**`
+- **DoD**: ≥ 10 tareas con criterios objetivos; evaluador escribe en `evaluations`; `pnpm bench --provider X` reproducible.
+
+### TASK-037 · Pruebas de seguridad (inyección, SSRF, fugas, escalada de presupuesto)
+- **Estado**: BLOCKED · **Owner**: security · **Depende de**: TASK-036 · **Scope**: `tests/security/**`, `docs/security/**`
+- **DoD**: suite automatizada de los cuatro vectores; `SECURITY_POLICY.md` completa; **security REQUIRED**.
+
+### TASK-038 · Licencia (ADR-008), NOTICE y revisión de dependencias
+- **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-037 · **Scope**: `LICENSE`, `NOTICE`, `docs/adr/ADR-008-*.md`, `docs/THIRD_PARTY.md`
+- **DoD**: `pnpm licenses list` revisado; ADR-008 `Accepted` solo tras aprobación humana.
+
+### TASK-039 · OD-003 (auth de API) + instalación limpia verificada + cierre de M5
+- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-038, OD-003 · **Scope**: `README.md`, `docs/reports/M5-closure.md`, `apps/web/middleware.ts` (si OD-003 lo exige)
+- **DoD**: instalación en máquina ajena siguiendo solo el README; criterio de salida M5 verificado; humano acepta.
+
+---
+
+## Registro de cambios de este documento
+
+| Fecha | Cambio |
+|---|---|
+| 2026-10-20 | Creación con 39 tareas (M0–M5). READY: TASK-001, TASK-002. |

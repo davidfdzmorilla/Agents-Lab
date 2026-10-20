@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Bloquea secretos y ficheros prohibidos en el staging (docs/AGENTS.md §4).
+set -u
+files="$(git diff --cached --name-only --diff-filter=ACMR)"
+[ -z "$files" ] && exit 0
+status=0
+
+for f in $files; do
+  case "$f" in
+    .env|.env.*|*/.env|*/.env.*)
+      [ "$f" = ".env.example" ] || [ "$f" = "tests/.env.test.example" ] || { echo "pre-commit: '$f' no se commitea nunca." >&2; status=1; } ;;
+    *.pem|*.key|*.p12|*.pfx|id_rsa*|id_ed25519*)
+      echo "pre-commit: fichero de clave '$f' en staging." >&2; status=1 ;;
+  esac
+  case "$f" in .env.example|tests/.env.test.example) continue ;;
+  esac
+  # Patrones de credenciales habituales en el contenido añadido.
+  if git diff --cached -U0 -- "$f" | grep -E '^\+' | grep -Ev '^\+\+\+' | grep -Eq \
+     '(sk-or-v1-[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{32,}|AIza[0-9A-Za-z_-]{30,}|ghp_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|postgres(ql)?://[^:/\s]+:[^@/\s]{8,}@)'; then
+    echo "pre-commit: posible secreto en '$f'." >&2; status=1
+  fi
+  if [ -f "$f" ] && [ "$(wc -c < "$f")" -gt 1048576 ]; then
+    echo "pre-commit: '$f' supera 1 MB." >&2; status=1
+  fi
+done
+exit $status
