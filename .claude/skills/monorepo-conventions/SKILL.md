@@ -27,6 +27,7 @@ packages/<name>/
 - Ficheros `kebab-case.ts`. Tipos `PascalCase`. Esquemas Zod `XxxSchema` + `type Xxx = z.infer<…>`.
 - Errores: subclase de `AgentLabError` con `code` estable en SCREAMING_SNAKE. Nunca `throw new Error()` fuera de tests.
 - `process.env` solo en `@agentlab/core` (`env.ts`). El resto recibe config por parámetros.
+- El objeto que devuelve `loadEnv()` contiene secretos (claves, contraseña de la base de datos): **no se pasa entero a ningún logger, error ni serialización**; se leen campos sueltos y las claves de proveedor solo mediante el `SecretResolver` (TD-011, hasta TASK-027).
 - Logging: logger inyectado (`pino` hasta M3; `@agentlab/observability` después). Nunca `console.*` en paquetes.
 - Nada de singletons ni estado de módulo mutable. Dependencias por inyección en funciones de construcción (`buildX(deps)`).
 - Comentarios solo cuando el porqué no es evidente. Sin comentarios que narren el qué.
