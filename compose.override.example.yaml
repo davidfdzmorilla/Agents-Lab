@@ -1,0 +1,10 @@
+# Copy to compose.override.yaml (gitignored) to expose Postgres to the host for development.
+# db must also join "egress": a published port on a service attached only to an
+# internal network is silently ignored.
+# WARNING: with this override active, db joins the "egress" network and therefore has
+# outbound internet access. Known debt TD-016, to be paid in TASK-037.
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks: [backend, egress]

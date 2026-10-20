@@ -1,0 +1,13 @@
+.git
+**/node_modules
+.pnpm-store
+.claude
+docs
+**/.env
+**/.env.*
+**/.turbo
+**/.next
+**/dist
+**/coverage
+*.log
+.DS_Store

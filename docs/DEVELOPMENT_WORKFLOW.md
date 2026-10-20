@@ -22,7 +22,7 @@ El comando `/status` ejecuta exactamente esto y devuelve un resumen de ≤ 15 l�
 
 ## 3. Reglas inamovibles
 
-1. **Una tarea `IN_PROGRESS` a la vez** por sesión. Dos solo con autorización explícita del humano y scopes disjuntos.
+1. **Una tarea `IN_PROGRESS` a la vez** por sesión. Dos solo con autorización explícita del humano y scopes disjuntos. Una tarea a la vez por defecto; si el humano autoriza dos, el scope de `task-scope.json` es la unión de ambos.
 2. **Los agentes no inventan requisitos.** Lo que SPEC/ARCHITECTURE no definen se registra como `OPEN DECISION` (`/open-decision`) y, si bloquea, la tarea queda `BLOCKED`. Una suposición "razonable" sin registrar es un defecto.
 3. **`DONE` exige**: tester `PASS` + reviewer `APPROVED` + security `APPROVED` cuando aplica + informe en `docs/reports/TASK-NNN.md`. Nunca se salta, ni "por esta vez".
 4. **Una tarea `DONE` no se reabre.** Se crea `TASK-NNN-fix-<n>` que la referencia.

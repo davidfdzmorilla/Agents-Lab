@@ -7,6 +7,14 @@ description: "Formatos obligatorios de los informes que devuelven los subagentes
 
 Todo subagente termina con **un** informe en este formato, en su mensaje final. `docs-keeper` los archiva íntegros en `docs/reports/TASK-NNN.md`. Máximo 30 líneas de log o salida de comandos por informe; nunca ficheros enteros.
 
+## Cierre de hallazgos
+
+Regla decidida por el humano: "un hallazgo solo se cierra con cita literal del fichero corregido".
+
+- Todo hallazgo marcado como resuelto (en IMPLEMENTATION de un ciclo de corrección, y al verificarlo en TEST, REVIEW y SECURITY) lleva `fichero:línea` y el texto literal de esa línea tal como está en disco, leído después del cambio.
+- Sin cita, el hallazgo cuenta como no resuelto.
+- La cita cuenta dentro de las 30 líneas de la regla general.
+
 ## PLAN (architect)
 ```
 ## PLAN — TASK-NNN
@@ -33,6 +41,7 @@ Fuera de scope detectado: <ruta y motivo> | ninguno
 Dependencias que harían falta: <paquete y motivo> | ninguna
 OPEN DECISIONS: <descripción> | ninguna
 Deuda propuesta: <descripción, severidad, dónde pagar> | ninguna
+Hallazgos resueltos (opcional, solo ciclos de corrección): [x] <id> — fichero:línea — "<línea literal leída tras el cambio>"
 Dudas: <…> | ninguna
 ```
 
@@ -46,6 +55,7 @@ DoD:
 Cobertura: <n % (objetivo m %)> | n/a
 Tests añadidos: <lista> | ninguno
 Problemas en tests existentes: <…> | ninguno
+Hallazgos verificados (opcional): [x] <id> — fichero:línea — "<línea literal leída en disco>"
 Veredicto: PASS | FAIL
 Si FAIL: <viñeta, fallo exacto, cómo reproducir>
 ```
@@ -59,6 +69,7 @@ Cumplimiento: SPEC ✅/❌ · ARCHITECTURE ✅/❌ · ADRs ✅/❌ · DoD ✅/�
 Sobrearquitectura detectada: <…> | ninguna
 Deuda propuesta: <descripción, severidad propuesta (≤ MEDIUM), dónde pagar> | ninguna
 Requiere security: sí (motivo) | no
+Hallazgos verificados (opcional): [x] <id> — fichero:línea — "<línea literal leída en disco>"
 Veredicto: APPROVED | CHANGES_REQUESTED
 ```
 
@@ -68,6 +79,7 @@ Veredicto: APPROVED | CHANGES_REQUESTED
 Vectores revisados: secretos · inyección · SSRF · presupuesto · autoaprobación · docker/ci · garantías dev · dependencias
 Hallazgos:
   - [CRITICAL|HIGH|MEDIUM|LOW] fichero:línea — impacto — corrección mínima
+Hallazgos verificados (opcional): [x] <id> — fichero:línea — "<línea literal leída en disco>"
 Veredicto: APPROVED | BLOCKED
 ```
 
