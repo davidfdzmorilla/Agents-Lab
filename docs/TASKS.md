@@ -2,9 +2,9 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-20 (creación) |
+| Última actualización | 2026-10-20 (cierre TASK-001) |
 | Hito actual | M0 |
-| Tareas READY | — (TASK-001 IN_PROGRESS) |
+| Tareas READY | TASK-004 |
 
 ## Cómo se lee este documento
 
@@ -22,7 +22,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ## M0 — Base
 
 ### TASK-001 · Monorepo pnpm + Turborepo + TypeScript estricto
-- **Estado**: IN_PROGRESS · **Owner**: devops · **Depende de**: —
+- **Estado**: DONE · **Owner**: devops · **Depende de**: —
 - **Scope**: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`, `tsconfig.base.json`, `.nvmrc`, `.npmrc`, `eslint.config.js`, `.prettierrc`, `.editorconfig`, `.gitignore`, `apps/web/package.json`, `apps/worker/package.json`, `packages/core/package.json`, `packages/persistence/package.json`, `apps/*/tsconfig.json`, `packages/*/tsconfig.json`, `apps/*/src/index.ts`, `packages/*/src/index.ts`, `Makefile`
 - **Dependencias autorizadas** (solo devDependencies en la raíz, última estable al instalar, fijadas sin `^`): `typescript`, `turbo`, `eslint`, `@eslint/js`, `typescript-eslint`, `prettier`, `eslint-config-prettier`, `@types/node`.
 - **DoD**:
@@ -56,9 +56,10 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `.env.example` sin ningún valor secreto; todas las variables documentadas en una línea.
   - `make up`, `make down`, `make logs`, `make test` funcionan.
   - `TURBO_TELEMETRY_DISABLED=1` en `Makefile` y en ambos Dockerfiles.
+  - Target `make validate` con el comando de validación en Docker `node:22` y store de pnpm en volumen con nombre (TD-008).
 
 ### TASK-004 · packages/core: esquemas Zod, errores tipados, env
-- **Estado**: BLOCKED · **Owner**: core-dev · **Depende de**: TASK-001
+- **Estado**: READY · **Owner**: core-dev · **Depende de**: TASK-001
 - **Scope**: `packages/core/**`
 - **DoD**:
   - Esquemas: `AgentDefinitionSchema`, `TeamDefinitionSchema`, `RunRequestSchema`, `RunEventSchema` (discriminated union con los 13 tipos de SPEC §8), `BudgetSchema`, `AgentInvocationResultSchema`, `ProviderCapabilitiesSchema`.
@@ -69,6 +70,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Cobertura de tests ≥ 90 % en `core`.
   - Cero dependencias de runtime salvo `zod`.
   - Versión exacta de `zod` compatible con los rangos de `@langchain/langgraph` 1.5.1 (`^3.25.32 || ^4.2.0`) y `@langchain/core` 1.2.18 (`^3.25.76 || ^4`), fijada sin `^` (ADR-002).
+  - `vitest.config.ts` y tests fuera de `src/` conviven con `rootDir: src`: rootDir se mantiene; decidir include/tsconfig aparte (TD-010).
 
 ### TASK-005 · packages/persistence: Drizzle, migración inicial, repositorios base
 - **Estado**: BLOCKED · **Owner**: persistence-dev · **Depende de**: TASK-003, TASK-004 · **security REQUIRED**
@@ -92,6 +94,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Job `secrets-scan` que ejecuta `scripts/ci/check-no-secrets.sh` (mismas reglas que `.githooks/pre-commit`).
   - Badge o enlace en README.
   - `TURBO_TELEMETRY_DISABLED=1` en todos los jobs del pipeline.
+  - Lint de los ficheros de configuración de la raíz (`eslint.config.js`, etc.) incluido en el pipeline (TD-007).
 
 ### TASK-007 · apps/web: esqueleto Next.js + `GET /api/health`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-005 · **security REQUIRED**
@@ -101,6 +104,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `GET /api/health` → `{ ok: true, db: "up", version }`; `{ ok: false, db: "down" }` con 503 si PostgreSQL no responde en 2 s.
   - Handler usa `persistence` vía `@agentlab/persistence`; sin SQL inline.
   - Test del handler con PostgreSQL arriba y abajo.
+  - Elimina el placeholder `apps/web/src/index.ts` (TD-009).
+  - `next.config.ts` convive con `rootDir: src`: rootDir se mantiene; decidir include/tsconfig aparte (TD-010).
 
 ### TASK-008 · apps/worker: bucle de reclamación vacío con heartbeat y apagado limpio
 - **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-005, OD-007
@@ -298,6 +303,17 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ---
 
+## Transversal
+
+### TASK-040 · ADR de herramientas: TypeScript 6/7 y pnpm con mantenimiento
+- **Estado**: BLOCKED · **Owner**: architect · **Depende de**: TASK-009
+- **Scope**: `docs/adr/**`, `docs/ARCHITECTURE.md` (§9), `docs/reports/TASK-040-plan.md`
+- **DoD**:
+  - ADR `Proposed` que evalúa subir TypeScript a 6/7 (cuando typescript-eslint lo soporte) y pnpm a una versión mantenida, con compatibilidad verificada y plan de migración; paga TD-006.
+  - `Accepted` solo tras aprobación humana.
+
+---
+
 ## Registro de cambios de este documento
 
 | Fecha | Cambio |
@@ -310,3 +326,6 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-20 | TASK-002: tester PASS (ciclo 1) y reviewer APPROVED (ciclo 1); security no aplica (solo docs). Pendiente `/close-task`. TASK-001 → IN_PROGRESS (owner devops). |
 | 2026-10-20 | TASK-001: IMPLEMENTATION recibido; ciclo de corrección 1/3 (`.pnpm-store/` creado en el repo por la validación en Docker). `/close-task TASK-002` en paralelo (decisión humana). |
 | 2026-10-20 | TASK-002 → DONE (tester PASS, reviewer APPROVED; ciclo de corrección 1). Informe en docs/reports/TASK-002.md. |
+| 2026-10-20 | TASK-002 commit 48eee1f |
+| 2026-10-20 | TASK-001: tester PASS (ciclo 0); reviewer CHANGES_REQUESTED (1 MAJOR: imports relativos entre paquetes) → corrección 2/3 (`rootDir: src`, `globalDependencies`); tester PASS y reviewer APPROVED (ciclo 2); security no aplica. TASK-001 → REVIEW. |
+| 2026-10-20 | TASK-001 → DONE (tester PASS, reviewer APPROVED; ciclos de corrección 2). Informe en docs/reports/TASK-001.md. TASK-004 → READY. TASK-040 creada. Deuda TD-006…TD-010. |
