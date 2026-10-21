@@ -8,7 +8,7 @@ Tarea = `$ARGUMENTS` o la que esté en `.claude/task-scope.json`. Debe estar `DO
 2. Delega a `committer` con packet `phase: PREPARE`, incluyendo el `allow` de la tarea (para que detecte ficheros fuera de scope) y el título de la tarea. Pide informe `COMMIT`.
 3. Presenta al humano **literalmente**: lista de ficheros a incluir, ficheros excluidos y por qué, mensaje propuesto. Pregunta: «¿Confirmas el commit tal cual? (sí / cambios)».
 4. **Espera la confirmación.** Si pide cambios en el mensaje o la lista, repite PREPARE con las instrucciones.
-5. Con confirmación explícita: delega a `committer` con packet `phase: EXECUTE`, citando la confirmación humana, la lista exacta y el mensaje exacto.
+5. Con confirmación explícita: delega a `committer` con packet `phase: EXECUTE`, citando la confirmación humana, la lista exacta y el mensaje exacto. El committer escribe el mensaje con `Write` en el scratchpad y ejecuta `git add -- <lista>` y `git commit -F <fichero>` como comandos separados; nunca un heredoc en el mismo comando que `git`.
 6. Al recibir el hash: escribe `.claude/task-scope.json` → `{"task": null, "owner": null, "allow": ["*"], "deps_allowed": [], "commit_allowed": false, "updated_at": …}`. Añade el hash al registro de cambios de `docs/TASKS.md` (`| fecha | TASK-NNN commit <hash> |`).
 7. Resume en 3 líneas. **Nunca** hagas push ni lo sugieras como algo que puedas hacer: es del humano.
 
