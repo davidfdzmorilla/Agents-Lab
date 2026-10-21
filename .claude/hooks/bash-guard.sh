@@ -134,7 +134,13 @@ if [ -n "$allow_scope" ] && [ "$allow_scope" != "*" ]; then
       case "$rel" in
         .claude/task-scope.json|node_modules|node_modules/*|*/node_modules/*|.turbo/*|*/.turbo/*|dist/*|*/dist/*|.next/*|*/.next/*|coverage/*|*/coverage/*|.pnpm-store|.pnpm-store/*) continue ;;
       esac
-      any_match "$rel" <<< "$allow_scope" || block "escritura por shell en '$rel' fuera del scope de la tarea. Usa Edit/Write dentro del scope o repórtalo."
+      if ! any_match "$rel" <<< "$allow_scope"; then
+        # mkdir de un directorio PADRE de una ruta permitida (mkdir -p apps/web/src) no toca nada ajeno.
+        if printf '%s' "$seg" | grep -Eq '^mkdir([[:space:]]|$)' && printf '%s\n' "$allow_scope" | grep -Eq "^$(printf '%s' "$rel" | sed -e 's/[.[\*^$]/\\&/g')/"; then
+          continue
+        fi
+        block "escritura por shell en '$rel' fuera del scope de la tarea. Usa Edit/Write dentro del scope o repórtalo."
+      fi
     done
   done <<EOF2
 $segs2
