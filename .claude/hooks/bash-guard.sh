@@ -97,6 +97,8 @@ if [ -n "$allow_scope" ] && [ "$allow_scope" != "*" ]; then
   while IFS= read -r seg; do
     seg="${seg#"${seg%%[![:space:]]*}"}"
     targets=""
+    # docker/kubectl/ssh/git/pnpm/npm/node/make no escriben rutas locales por sí mismos: fuera del análisis.
+    case "$seg" in docker\ *|kubectl\ *|ssh\ *|git\ *|pnpm\ *|npm\ *|npx\ *|node\ *|make\ *) continue ;; esac
     case "$seg" in
       cd\ *) d="$(printf '%s' "$seg" | tr ' ' '\n' | sed -n 2p)"; d="${d%\"}"; d="${d#\"}"; d="${d%\'}"; d="${d#\'}"
              case "$d" in /*) curdir="$d" ;; ~*) curdir="${d/#\~/$HOME}" ;; *) curdir="$curdir/$d" ;; esac
@@ -142,6 +144,9 @@ fi
 # ---- secretos -----------------------------------------------------------------------
 if printf '%s' "$flat" | grep -Eq '(^|[;&| ])(cat|less|more|head|tail|bat|sed|awk|grep|rg|source|\.)[[:space:]]+[^;&|]*\.env([[:space:]]|$|\.)' && ! printf '%s' "$flat" | grep -Eq '\.env\.example'; then
   block "no se leen ficheros .env desde Claude Code"
+fi
+if printf '%s' "$flat" | grep -Eq 'docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*[[:space:]](printenv|env)([[:space:]]|$)|docker[[:space:]]+inspect[^|;&]*(Config\.Env|\.Env\b)|docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*(cat|grep|sed|awk)[^|;&]*\.env'; then
+  block "no se leen variables de entorno ni secretos de un contenedor en marcha; usa la credencial desechable del encargo"
 fi
 if printf '%s' "$flat" | grep -Eq '(^|[;&| ])(printenv|env)([[:space:]]*$|[[:space:]]*\|)|\$\{?[A-Z0-9_]*(API_KEY|SECRET|TOKEN|PASSWORD)[A-Z0-9_]*\}?' ; then
   block "no se imprimen variables de entorno con secretos"
