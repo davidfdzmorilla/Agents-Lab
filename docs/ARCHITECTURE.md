@@ -247,10 +247,11 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 
 | Herramienta | Versión | Fijada en |
 |---|---|---|
-| Node.js | 22 LTS (`engines.node` `>=22.12 <23` desde TASK-004: lo exigen `vitest` 5 y `vite` 8) | `.nvmrc`, Dockerfiles, `engines` en `package.json` |
+| Node.js | `22.23.3` (OD-048 a+, TASK-006; `engines.node` `>=22.12 <23` desde TASK-004: lo exigen `vitest` 5 y `vite` 8). El step «Node versions agree» del job `lint` del CI (`scripts/ci/check-node-version.sh`) falla si `.nvmrc`, los dos Dockerfiles y el `Makefile` no coinciden. La subida a `22.23.4` (parche de seguridad) es TASK-042 | `.nvmrc`; `docker/worker.Dockerfile` y `docker/web.Dockerfile` y `NODE_IMAGE` del `Makefile` (`node:22.23.3-bookworm-slim`, fijada por digest); `engines` en `package.json` |
 | pnpm | 9.x | `packageManager` en `package.json` |
 | TypeScript | 5.x strict (`5.9.3`, con `@types/node` 22.x) | `tsconfig.base.json` |
 | PostgreSQL | 16 | `compose.yaml` |
+| GitHub Actions (CI, TASK-006) | Runner `ubuntu-24.04`. Acciones fijadas por SHA completo, con la versión en comentario: `actions/checkout` v7.0.1 (`3d3c42e5aac5ba805825da76410c181273ba90b1`), `actions/setup-node` v7.0.0 (`820762786026740c76f36085b0efc47a31fe5020`), `actions/cache` v6.1.0 (`55cc8345863c7cc4c66a329aec7e433d2d1c52a9`). La regla de antigüedad mínima aplica también a las acciones: publicadas el 2026-07-20, el 2026-07-14 y el 2026-06-26, respectivamente (verificado por security contra la API de GitHub). Sin actualización automática: Dependabot para actions se decide en TASK-040 | `.github/workflows/ci.yml` |
 
 Dependencias fijadas por OD-001 (TASK-002, ADR-002) y por TASK-004 (OD-009), verificadas con `npm view` el 2026-10-20, y por TASK-007 (OD-042), verificadas el 2026-10-21. Versión exacta, sin `^`, idéntica en todos los workspaces que la usen.
 

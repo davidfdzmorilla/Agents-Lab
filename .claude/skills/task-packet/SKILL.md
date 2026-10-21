@@ -58,3 +58,4 @@ Entregable:
 - En `commit`, el packet incluye `allow` y, en EXECUTE, la cita de la confirmación humana, la lista exacta de ficheros y el mensaje exacto.
 - Nunca incluyas secretos, ni siquiera "para que funcione el test".
 - Credenciales de prueba: las rellena el Orchestrator con una contraseña desechable, la misma en todos los encargos del hito; el agente solo las exporta en la shell de sus invocaciones, nunca en ficheros, código, informes ni commits. Si la contraseña del volumen y la del encargo no coinciden, el agente lo reporta y para, no la busca (ni en contenedores ni en `.env`).
+- Evidencia Linux (regla 10 de testing-conventions): la da el CI de TASK-006. Ningún encargo autoriza montar el socket de Docker (`/var/run/docker.sock`) en un contenedor; la excepción usada en TASK-007 y TASK-008 se retiró en el cierre de TASK-006.

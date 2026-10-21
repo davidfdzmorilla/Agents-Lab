@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+  NEXT_TELEMETRY_DISABLED: "1"
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node versions agree (.nvmrc, Dockerfiles, Makefile)
+        run: bash scripts/ci/check-node-version.sh
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Enable pnpm (corepack, version from packageManager)
+        run: corepack enable && pnpm --version
+      - name: Resolve pnpm store path
+        id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: make lint
+      - run: pnpm format:check
+
+  typecheck:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Enable pnpm (corepack, version from packageManager)
+        run: corepack enable && pnpm --version
+      - name: Resolve pnpm store path
+        id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: make typecheck
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # Throwaway, public by design: it only protects the service container of this job.
+      POSTGRES_PASSWORD: cithrowaway
+    services:
+      postgres:
+        image: postgres:16.15-trixie@sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d
+        env:
+          POSTGRES_USER: agentlab
+          # Same throwaway value as the job env (the env context is not available here).
+          POSTGRES_PASSWORD: cithrowaway
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U agentlab -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Enable pnpm (corepack, version from packageManager)
+        run: corepack enable && pnpm --version
+      - name: Resolve pnpm store path
+        id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm test
+        env:
+          DATABASE_URL_TEST: postgresql://agentlab:${{ env.POSTGRES_PASSWORD }}@localhost:5432/agentlab_test
+
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Enable pnpm (corepack, version from packageManager)
+        run: corepack enable && pnpm --version
+      - run: pnpm audit --audit-level=high
+
+  secrets-scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/ci/check-no-secrets.sh
+
+  validate-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Throwaway, public by design: it only protects the compose db of this job.
+      POSTGRES_PASSWORD: cithrowaway
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Pipes into `head` are safe under pipefail here: with pipefail, `head` closing
+      # early could make the producer exit with SIGPIPE (141), but `--version` prints a
+      # few lines that fit in the pipe buffer and the producer finishes before `head`
+      # closes. For a producer with long output use another pattern (e.g.
+      # `cmd | sed -n 1p`, or capture the output in a variable).
+      - name: Tool versions (Linux evidence for testing-conventions rule 10)
+        run: |
+          make --version | head -n 1
+          tar --version | head -n 1
+          docker compose version
+      - run: make validate
+        env:
+          DATABASE_URL: postgresql://agentlab:${{ env.POSTGRES_PASSWORD }}@db:5432/agentlab
+          DATABASE_URL_TEST: postgresql://agentlab:${{ env.POSTGRES_PASSWORD }}@db:5432/agentlab_test
+      - name: Tear down compose
+        if: always()
+        run: make down

@@ -23,7 +23,9 @@ P8: licencia definida antes de publicar. Se busca un proyecto abierto, reutiliza
 | AGPL-3.0 | Limita la adopción; no es el objetivo del proyecto |
 
 ## Consecuencias
-Pendiente de aceptación. Hasta entonces el repositorio es privado o `UNLICENSED` en `package.json`.
+Pendiente de aceptación. Hasta entonces el repositorio es público sin licencia.
+
+Nota (2026-10-21, TASK-006, decisión humana): Repositorio público desde 2026-10-21 sin fichero LICENSE ni campo `license` en `package.json`: sin licencia, todos los derechos reservados, hasta que ADR-008 se acepte en M5. Si se decide poner `"license"` en `package.json` antes que el fichero LICENSE, va en TASK-038.
 
 ## Verificación
 TASK-038.

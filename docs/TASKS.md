@@ -2,9 +2,10 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-21 (cierre TASK-007) |
+| Última actualización | 2026-10-21 (TASK-006 → DONE; TASK-009 y TASK-042 → READY) |
 | Hito actual | M0 |
-| Tareas READY | TASK-006, TASK-010, TASK-012 (orden decidido: TASK-006 → TASK-009) |
+| Tarea en REVIEW | — |
+| Tareas READY | TASK-009, TASK-010, TASK-012, TASK-042 |
 
 ## Cómo se lee este documento
 
@@ -134,8 +135,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Tests de integración (`*.integration.test.ts`) en serie: un solo runner, `fileParallelism: false` (regla en testing-conventions).
 
 ### TASK-006 · CI: lint, typecheck, test contra PostgreSQL de servicio
-- **Estado**: READY · **Owner**: devops · **Depende de**: TASK-005, OD-004 (decidida 2026-10-20: GitHub + GitHub Actions)
-- **Scope**: `.github/workflows/ci.yml`, `Makefile`, `scripts/ci/**`
+- **Estado**: DONE · **Owner**: devops · **Depende de**: TASK-005, OD-004 (decidida 2026-10-20: GitHub + GitHub Actions) · **security REQUIRED**
+- **Scope**: `.github/workflows/ci.yml`, `Makefile`, `scripts/ci/**`, `.nvmrc` (devops); `README.md`, `.claude/skills/testing-conventions/SKILL.md`, `.claude/skills/task-packet/SKILL.md`, `docs/TECHNICAL_DEBT.md`, `docs/TASKS.md` (docs-keeper / Orchestrator, cierre); `docs/ARCHITECTURE.md` §9, `docs/TECHNICAL_SPEC.md` §13, `docs/reports/TASK-006-plan.md` (architect) (OD-051; plan en `docs/reports/TASK-006-plan.md`)
+- **Dependencias autorizadas**: ninguna de npm. Acciones de GitHub fijadas por SHA: `actions/checkout` v7.0.1, `actions/setup-node` v7.0.0, `actions/cache` v6.1.0.
 - **DoD**:
   - Pipeline con jobs `lint`, `typecheck`, `test` (PostgreSQL 16 como servicio), caché de pnpm.
   - El pipeline falla si `pnpm audit --audit-level=high` reporta vulnerabilidades.
@@ -143,6 +145,19 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Badge o enlace en README.
   - `TURBO_TELEMETRY_DISABLED=1` en todos los jobs del pipeline.
   - Lint de los ficheros de configuración de la raíz (`eslint.config.js`, etc.) incluido en el pipeline (TD-007).
+  - `.github/workflows/ci.yml` con los jobs `lint`, `typecheck`, `test`, `audit`, `secrets-scan` y `validate-linux` (OD-049) en `runs-on: ubuntu-24.04`, `permissions: contents: read`, `concurrency` por ref con `cancel-in-progress: true`, `timeout-minutes` en cada job y ningún `secrets.*`.
+  - Cada `uses:` fijado por SHA de commit completo con comentario de versión, publicada hace al menos dos semanas (ARCHITECTURE §9): `actions/checkout` v7.0.1, `actions/setup-node` v7.0.0, `actions/cache` v6.1.0.
+  - Node desde `.nvmrc` (`22.23.3`, la misma versión que `NODE_IMAGE` y los Dockerfiles; OD-048); pnpm 9.15.9 por corepack desde `packageManager`; `pnpm install --frozen-lockfile --ignore-scripts`; caché del store de pnpm con clave en el hash de `pnpm-lock.yaml`.
+  - Un paso de CI falla si la versión de Node de `.nvmrc`, la de los Dockerfiles (`docker/worker.Dockerfile`, `docker/web.Dockerfile`) y la de `NODE_IMAGE` en el `Makefile` no coinciden (OD-048 a+).
+  - Job `test`: PostgreSQL 16 como service container con la imagen y el digest de `compose.yaml`; `DATABASE_URL_TEST` apunta a él; credenciales desechables definidas en el workflow, sin ninguna URL con credencial literal.
+  - `validate-linux` ejecuta `make validate` y, siempre, `make down` en el runner, y muestra las versiones de GNU make y GNU tar: es la evidencia Linux de la regla 10 de testing-conventions.
+  - `audit` falla si el registro no responde (OD-050 a: sin `--ignore-registry-errors`).
+  - `scripts/ci/check-no-secrets.sh` ejecuta el propio `.githooks/pre-commit` sobre todos los ficheros versionados en HEAD, sin copia de las reglas. Árbol actual → exit 0; canarios en un clon fuera del repo (token, URL con credencial, clave privada, `*.pem`, `id_rsa`, > 1 MB) → exit ≠ 0.
+  - `make lint` y `make validate` lintan los ficheros de configuración de la raíz además de los workspaces; un error en un `*.js` de la raíz hace fallar `make lint` (TD-007 → PAID; OD-052 a).
+  - actionlint 1.7.12 (imagen fijada por digest, fuera del repo) sin errores sobre `ci.yml`, con shellcheck.
+  - Una ejecución real de los seis jobs en verde en GitHub Actions, con el enlace en el informe (OD-053 a): antes de DONE el humano hace push de una rama desechable `ci/task-006-probe`, la CI corre, el tester cita la URL del run y el resultado de cada job, y el humano borra la rama después.
+  - Retirada de la excepción del socket de Docker: regla 10 de testing-conventions y viñeta de task-packet con el texto aprobado (docs-keeper, cierre); desde aquí la evidencia Linux la da la CI y ningún encargo autoriza montar el socket.
+  - `ci.yml` declara `defaults: run: shell: bash` a nivel de workflow (todos los `run:` con `-eo pipefail`); un segundo run en verde de los seis jobs en `ci/task-006-probe` con ese cambio, citado por el tester (MINOR del reviewer, ciclo de corrección 1/3).
 
 ### TASK-007 · apps/web: esqueleto Next.js + `GET /api/health`
 - **Estado**: DONE · **Owner**: web-dev (reparto por pasos: persistence-dev, devops, web-dev; plan en `docs/reports/TASK-007-plan.md`, ADR-012) · **Depende de**: TASK-005 · **security REQUIRED**
@@ -194,7 +209,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Al arrancar, el worker comprueba que existe el esquema `langgraph` (`pg_namespace`); si no, sale con código 1 y un mensaje que indica ejecutar `pnpm db:migrate` (servicio `migrate` en compose) (ADR-002). Test del caso de fallo.
 
 ### TASK-009 · README con instalación desde cero + cierre de M0
-- **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-001…TASK-008
+- **Estado**: READY · **Owner**: docs-keeper · **Depende de**: TASK-001…TASK-008
 - **Scope**: `README.md`, `docs/reports/M0-closure.md`, `docs/TASKS.md`, `docs/ROADMAP.md`
 - **DoD**:
   - README: requisitos, `cp .env.example .env` y rellenar `POSTGRES_PASSWORD`/`DATABASE_URL`/`DATABASE_URL_TEST` antes de `make up`, `make up`, verificación de `/api/health`, cómo ejecutar tests (`make test` deja `db` en marcha; se para con `make down`), estructura del repo, enlace a `docs/`.
@@ -407,8 +422,29 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Deuda TD-033: `.dockerignore` (`!.npmrc`) excluye `**/.npmrc` anidados; añadir `--ignore-pnpmfile` en las instalaciones y deploy del Dockerfile, incluido `docker/web.Dockerfile:22` (`web`, TASK-007).
   - Deuda TD-035: webpack con `extensionAlias` en lugar de Turbopack en `apps/web` (`apps/web/next.config.ts:15-17`); revisar la vuelta a Turbopack cuando resuelva `.js → .ts` del workspace (vercel/next.js#82945; ADR-012).
   - Deuda TD-036: `sharp`/libvips en la imagen de `web` sin cargarse en runtime (`images.unoptimized: true`); excluirlos de la imagen hasta que se usen (ADR-012:63).
+  - Frontend de BuildKit fijado por digest: `# syntax=docker/dockerfile:1` en `docker/worker.Dockerfile` y `docker/web.Dockerfile` (deuda LOW de TASK-006, security).
   - Deuda TD-037: claves de preview y `encryptionKey` generadas en el build dentro de la imagen de `web`; antes de publicarla, definir `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` en runtime o añadir Server Actions (ADR-012:65).
   - `Accepted` solo tras aprobación humana.
+
+### TASK-041 · Protección de `main` y paso a ramas con PR
+- **Estado**: BLOCKED · **Owner**: devops (documenta y verifica; la configuración en GitHub la aplica el humano) · **Depende de**: TASK-009 · **security REQUIRED** · **Severidad de la deuda que paga**: MEDIUM (hallazgo de security en TASK-006)
+- **Scope**: provisional, a fijar en `/next-task` — `docs/DEVELOPMENT_WORKFLOW.md`, `README.md`, `docs/TECHNICAL_DEBT.md`, `docs/reports/TASK-041*.md`
+- **DoD**:
+  - Ruleset sobre `main` aplicado por el humano: PR obligatoria, los seis jobs de CI (`lint`, `typecheck`, `test`, `audit`, `secrets-scan`, `validate-linux`) como checks obligatorios, sin force-push ni borrado.
+  - Acciones: `sha_pinning_required` activado.
+  - Revisión manual obligatoria de las PR que toquen `.github/`, `.githooks/`, `scripts/ci/` o `.claude/`.
+  - Aprobación de los workflows de todos los contribuidores externos (no solo los primerizos).
+  - El flujo de trabajo pasa a ramas con PR: documentado en `docs/DEVELOPMENT_WORKFLOW.md`.
+  - `security` verifica la configuración aplicada (lectura de la API de GitHub, con cita) y la deuda MEDIUM de TASK-006 pasa a PAID.
+
+### TASK-042 · Subir Node a 22.23.4 (parche de seguridad)
+- **Estado**: READY · **Owner**: devops · **Depende de**: TASK-006 · **security REQUIRED**
+- **Scope**: `.nvmrc`, `docker/worker.Dockerfile`, `docker/web.Dockerfile`, `Makefile` (`NODE_IMAGE`), `docs/ARCHITECTURE.md` §9 (architect)
+- **DoD**:
+  - Node 22.23.4 (release de seguridad del 2026-10-20) en `.nvmrc`, en los Dockerfiles y en `NODE_IMAGE` del `Makefile`, con la imagen fijada por digest; el paso de CI de TASK-006 que compara las versiones pasa.
+  - `security` cita el aviso o las notas de la release (identificador, URL, fecha) y verifica que 22.23.3 está afectada; si la versión tiene menos de dos semanas, la excepción se registra con el identificador del aviso (ARCHITECTURE §9).
+  - `make test`, `make validate` y la CI en verde.
+  - `scripts/ci/check-node-version.sh` compara también el digest de la imagen de Node (Dockerfiles y `NODE_IMAGE`), no solo la versión (deuda LOW de TASK-006).
 
 ---
 
@@ -489,3 +525,11 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-21 | TASK-007: verificación — tester PASS (test nuevo de `GET` con `Request` real; 503 en 2,018–2,034 s), reviewer APPROVED (2 MINOR, 3 NIT), security APPROVED (7 LOW + 1 MEDIUM). Decisiones humanas: Host/Origin/cabeceras = requisito del DoD de TASK-014 (no deuda), verificado allí por security; OD-003 queda ligada y TD-005 se amplía con la nota de security; `images.unoptimized: true` ya (web-dev); test de exports de persistence exacto ya (`toEqual` + `existsSync`, persistence-dev); LOW con pago: `--ignore-pnpmfile` → TD-033, `read_only`/límites → TASK-037, claves de preview en la imagen → TASK-040, salida a internet de `web` → TD-018/TASK-020, pool por petición → TASK-014; webpack y sharp → TASK-040 (ya aprobadas). 162e6c8 = commit del humano (hook, Task: none). Reviewer con el Node del host (eslint): incidencia menor; docs-keeper añade a AGENTS §4 la regla de validar con la versión de Node del proyecto (contenedor o nvm) para todos los roles. TASK-007 → IN_PROGRESS, ciclo de corrección 1/3 (tester solo los dos puntos; reviewer con cita); después paso 5 (architect) y cierre. |
 | 2026-10-21 | TASK-007: ciclo 1/3 — persistence-dev (test de exports exacto) y web-dev (`images.unoptimized`) entregados; docs-keeper: AGENTS §4 (:64) regla de la versión de Node. Re-verificación del tester: FAIL — test de exports ✅ (falla con un sub-export ficticio), `make validate` EXIT=0, pero `/_next/image` sigue dejando un `unhandledRejection` `EACCES mkdir '/app/apps/web/.next/cache'` por petición aunque responde 404. Decisión humana (ciclo 2/3, devops): `tmpfs` en compose para `/app/apps/web/.next/cache`, uid 1000, tamaño acotado (64m); la imagen sigue sin nada escribible en `/app`; consecuencia en ADR-012 «la imagen de web requiere un tmpfs en .next/cache; compose lo provee» (compose es la unidad de despliegue, ARCHITECTURE §1); el tester comprueba 20 peticiones con 404 y log limpio, y security vuelve a verificar «nada escribible en /app» en la imagen final. TD-032 ampliada a `apps/web` (DoD de TASK-027). |
 | 2026-10-21 | TASK-007 → DONE (tester PASS en la verificación inicial y en los ciclos 1 y 2; reviewer APPROVED (inicial y delta); security APPROVED (inicial y delta); dos ciclos de corrección, 1/3 y 2/3). Informe en docs/reports/TASK-007.md. Desbloqueadas: ninguna (TASK-009 sigue BLOCKED por TASK-006; TASK-014 por TASK-011). Deuda: TD-009 y TD-010 PAID; TD-035…TD-039 registradas; TD-005, TD-018, TD-032 y TD-033 ampliadas. DoD de TASK-020, TASK-037 y TASK-040 ampliados. |
+| 2026-10-21 | TASK-007: primer EXECUTE bloqueado por bash-guard (heredoc del mensaje en el mismo comando que git; comando literal en docs/reports/TASK-007.md, «Bloqueos del hook»); el humano dio Write al committer (solo scratchpad) y fijó en committer.md y commit.md la forma canónica (6d49773). Repetido con el mensaje escrito con Write por el Orchestrator y `git add` / `git commit -F` en comandos separados. Pendiente del humano: `docs/AGENTS.md:43` y `:92` siguen describiendo al committer sin Write y con `git add <lista> && git commit`. |
+| 2026-10-21 | TASK-007 commit 3845821 |
+| 2026-10-21 | TASK-006: plan aprobado (security REQUIRED). Decisiones humanas: OD-048 (a+) `.nvmrc` = 22.23.3 y paso de CI que falle si `.nvmrc`, Dockerfiles y `Makefile` no coinciden; R2 (Node 22.23.4 de seguridad) → TASK-042 creada (devops, BLOCKED hasta TASK-006, security REQUIRED); OD-049 (b) `validate-linux` como job aparte en paralelo; OD-050 (a) `audit` falla si el registro no responde; OD-051 scope ampliado; OD-052 (a); OD-053 (a) push del humano a `ci/task-006-probe` antes de DONE, el tester cita la URL del run y cada job, el humano borra la rama. Deuda LOW aprobada: endpoint de audit de pnpm 9 en retirada → TASK-040; `secrets-scan` solo HEAD → TASK-037 (gitleaks o equivalente sobre el historial); SHA de acciones sin actualización → TASK-040 (Dependabot de actions, en ese ADR). Bloqueo del plan: intento de escribir `.env.local` en el repositorio, bloqueado por settings.json; el agente lo atribuyó a la prueba de canarios en el scratchpad (error de ruta parado por la barrera, sin consecuencia; consta en el informe). TASK-006 → IN_PROGRESS. |
+| 2026-10-21 | TASK-006: pasos 1-4 (devops) entregados y verificados en disco (`.nvmrc` 22.23.3, `LINT_ROOT`, `scripts/ci/check-no-secrets.sh`, `scripts/ci/check-node-version.sh` añadido dentro del scope, `ci.yml` con seis jobs y acciones por SHA); evidencias locales en verde. Incidencia menor: devops intentó `git commit --no-verify` en un clon del scratchpad para la prueba de canarios, bloqueado por bash-guard, sin efecto; segunda nota a devops en el día (tras python3 en línea en TASK-007): la próxima repite la fase. Decisiones humanas: el humano crea y sube `ci/task-006-probe` con un commit `chore(ci): probe TASK-006` (Task: none) y la borra cuando el tester cite el run; el commit real va en main con `/commit` tras DONE; el informe dirá que el SHA probado y el commit final difieren solo en el mensaje y en los docs del cierre. Canario de secrets-scan: basta la prueba directa del hook sobre el staging; no se autoriza ningún commit con secretos falsos, ni en el scratchpad. |
+| 2026-10-21 | TASK-006: repo público desde hoy (humano). Rama `ci/task-006-probe`, commit 09c451c del humano (`chore(ci): probe TASK-006`, Task: none, 5 ficheros); runs en success con los seis jobs en verde: push https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39595685004 y pull_request https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39595707253. Al volver a main los ficheros quedaron fuera de la copia de trabajo; el humano los restauró desde 09c451c (idénticos byte a byte, verificado por el Orchestrator con `cmp`). La rama no se borra hasta después del commit en main. Cierre: nota de licencia en ADR-008 (architect) y en README (docs-keeper), texto del humano. TASK-006 → REVIEW (`/verify-task`). |
+| 2026-10-21 | TASK-006: verificación — tester PASS (runs 39595685004 y 39595707253 en 09c451c), reviewer APPROVED (2 MINOR, 2 NIT), security APPROVED (1 MEDIUM, 4 LOW). Decisiones humanas: MEDIUM `main` sin protección → TASK-041 (creada: no existía en TASKS.md), BLOCKED hasta TASK-009, con el ruleset de security en su DoD; la configuración de GitHub la aplica el humano. LOW aprobadas: frontend `docker/dockerfile:1` sin digest → TASK-040; nombres con espacios en `.githooks/pre-commit` → el humano al cerrar TASK-009; digest en `check-node-version.sh` → TASK-042. MINOR `shell: bash` se corrige ya (mismo tipo de fallo que el pipefail del Makefile en TASK-003): TASK-006 → IN_PROGRESS, ciclo de corrección 1/3 (devops); el humano hace el segundo push a `ci/task-006-probe` con un worktree y el tester cita el run nuevo. Incidencias menores: devops `--no-verify` (segunda nota); tester con el Node 26 del host (segunda vez que un rol lo hace, tras el reviewer en TASK-007): desde ahora, ejecutar con el Node del host es incidencia con repetición de la evidencia. |
+| 2026-10-21 | TASK-006 ciclo de corrección 1/3 (Orchestrator): devops añadió `defaults: run: shell: bash` (`.github/workflows/ci.yml:16-18`) para cerrar el MINOR del reviewer (sin pipefail). Segundo push del humano a `ci/task-006-probe`, commit 3b635da: seis jobs en verde en los runs 39611635469 (push) y 39611647131 (pull_request), sin 141 en las tuberías con `head`. Decisiones humanas: el comentario de pipefail lo añade devops (`ci.yml:155-159`), sin tercer push; la frase sobre el SHA probado y el commit final va en `docs/reports/TASK-006.md` (sección b). Nota de licencia: decisión humana (b); ADR-008 (`:26` y `:28`) y ARCHITECTURE (`:250` y `:254`) corregidos por el architect; `package.json` sin tocar; si en M5 se pone `license` antes que LICENSE, va en TASK-038. |
+| 2026-10-21 | TASK-006 → DONE (tester PASS en la verificación inicial y en la re-verificación del ciclo 1/3; reviewer APPROVED (inicial y delta); security APPROVED (inicial); un ciclo de corrección, 1/3). Informe en docs/reports/TASK-006.md. Desbloqueadas: TASK-009 (depende de TASK-006 y TASK-007, ambas DONE) y TASK-042 (READY). TASK-041 sigue BLOCKED por TASK-009. Deuda: TD-007 PAID; TD-040…TD-048 registradas. |

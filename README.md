@@ -1,5 +1,7 @@
 # AgentLab
 
+[![CI](https://github.com/davidfdzmorilla/Agents-Lab/actions/workflows/ci.yml/badge.svg)](https://github.com/davidfdzmorilla/Agents-Lab/actions/workflows/ci.yml)
+
 Plataforma open source para **definir, ejecutar, observar y evaluar equipos de agentes de IA** sin depender de un proveedor concreto. TypeScript de extremo a extremo: Next.js (UI + API), worker Node.js con LangGraph.js, PostgreSQL + Drizzle, Docker Compose. Coste de inferencia objetivo: 0 € (modelos gratuitos o Ollama local).
 
 > **Estado**: fase 0 — base documental y sistema de agentes de desarrollo. Sin código de aplicación todavía. El primer hito (M0) crea el monorepo y el entorno.
@@ -20,6 +22,8 @@ agentlab/
 │   └── skills/                    # task-packet · reports · testing-conventions · monorepo-conventions
 ├── .githooks/                     # commit-msg (sin atribución, Conventional Commits) · pre-commit (secretos)
 ├── scripts/verify-hooks.sh        # prueba que las barreras funcionan
+├── scripts/ci/                    # comprobaciones de la CI (secretos, versiones de Node)
+├── .github/workflows/ci.yml       # CI en cada push y PR (lint, typecheck, test, audit, secrets-scan, validate-linux)
 └── docs/
     ├── TECHNICAL_SPEC.md          # qué debe hacer (fuente: especificación del autor)
     ├── ARCHITECTURE.md            # cómo está construido: procesos, paquetes, contratos, datos
@@ -64,8 +68,10 @@ make test
 
 Orquestador de sesión + subagentes especializados con permisos impuestos por hooks; estado en `docs/`, nunca en la conversación; cada tarea pasa por implementación → tests → revisión → (seguridad) → cierre documental → commit confirmado por el humano. Detalle en `docs/AGENTS.md` y `docs/DEVELOPMENT_WORKFLOW.md`.
 
+La CI (`.github/workflows/ci.yml`) corre en cada push y PR: lint, typecheck, tests contra PostgreSQL de servicio, audit, secrets-scan y validación en Linux (`make validate`).
+
 Dos sistemas de agentes conviven aquí: los **de desarrollo** (`.claude/agents/`) construyen AgentLab; los **del producto** (`packages/agents`, desde M1) son los que AgentLab ejecuta.
 
 ## Licencia
 
-Pendiente (ADR-008 propone Apache-2.0; se acepta antes de publicar).
+Repositorio público desde 2026-10-21 sin fichero LICENSE ni campo `license` en `package.json`: sin licencia, todos los derechos reservados, hasta que ADR-008 se acepte en M5.

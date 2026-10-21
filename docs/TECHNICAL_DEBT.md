@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-21 (cierre TASK-007: TD-035…TD-039 registradas; TD-009 y TD-010 PAID; TD-005, TD-018, TD-032 y TD-033 ampliadas) |
+| Última actualización | 2026-10-21 (cierre TASK-006: TD-040…TD-048 registradas; TD-007 PAID) |
 
 Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, con fecha de pago. Si no tiene fecha de pago (hito), no es deuda: es un bug o una OPEN DECISION.
 
@@ -18,7 +18,7 @@ Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, co
 | TD-004 | Un solo worker con `WORKER_CONCURRENCY=1`; sin cola distribuida. Decisión de diseño (ADR-004), se revisa si aparece necesidad real. | LOW | ADR-004 | Revisión en M5 | OPEN (por diseño) |
 | TD-005 | Monousuario sin autenticación en la API hasta OD-003. Nota de security (TASK-007): la API no valida `Host` ni `Origin` ni cabeceras (DNS rebinding, CSRF); el requisito de protección está en el DoD de TASK-014; OD-003 ligada. | MEDIUM | SPEC §8 | TASK-039 (M5) | OPEN (prevista) |
 | TD-006 | TypeScript fijado en 5.9.3 (typescript-eslint 8.72.0 exige `<6.1.0`) y pnpm 9.15.9 sin mantenimiento. | LOW | TASK-001 (M0) | TASK-040 (ADR de herramientas tras M0) | OPEN |
-| TD-007 | `pnpm -r lint` no cubre los ficheros de configuración de la raíz (`eslint.config.js`, etc.). | LOW | TASK-001 (M0) | TASK-006 (lint de raíz en CI) | OPEN |
+| TD-007 | `pnpm -r lint` no cubre los ficheros de configuración de la raíz (`eslint.config.js`, etc.). | LOW | TASK-001 (M0) | TASK-006 (lint de raíz en CI) | PAID (TASK-006: root lint en `make lint`, `make validate` y CI) |
 | TD-008 | Sin target `make validate` para la validación en Docker `node:22` con store fuera del repo. | LOW | TASK-001 (M0) | TASK-003 (M0) | PAID (TASK-003) |
 | TD-009 | `apps/web/src/index.ts` es un placeholder ajeno a App Router. | LOW | TASK-001 (M0) | TASK-007 (M0) | PAID (TASK-007) |
 | TD-010 | `rootDir: src` en los tsconfig de workspace impide tipar ficheros de config/tests fuera de `src` (vitest.config.ts, next.config.ts). **rootDir se mantiene; decidir include/tsconfig aparte** (no quitar rootDir: cumple la Verificación de ADR-001). | LOW | TASK-001 (M0) | TASK-004 y TASK-007 (M0) | PAID (TASK-007; vitest.config.ts en TASK-004 con `tsconfig.config.json`; next.config.ts en TASK-007 con `tsconfig.config.json`; `rootDir: src` intacto) |
@@ -51,6 +51,15 @@ Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, co
 | TD-037 | Claves de preview y `encryptionKey` de Next generadas en el build dentro de la imagen de `web` (security LOW-5; ADR-012:65). Sin Server Actions ni Draft Mode no hay impacto; antes de publicar la imagen, definir `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` en runtime o añadir Server Actions. | LOW | TASK-007 (M0) | TASK-040 | OPEN |
 | TD-038 | `/api/health` abre un pool por petición sin límite de concurrencia (`apps/web/src/server/health.ts:12`). | LOW | TASK-007 (M0) | TASK-014 (pool compartido) | OPEN |
 | TD-039 | `web` sin `read_only: true` ni límites de memoria ni de procesos (`compose.yaml`); con el tmpfs de `.next/cache` ya en compose (ADR-012:64). | LOW | TASK-007 (M0) | TASK-037 | OPEN |
+| TD-040 | `main` sin protección: no hay ruleset ni checks obligatorios, y una PR puede reescribir sus propios jobs (`ci.yml`, `pre-commit`) y salir en verde. | MEDIUM | TASK-006 (security) | TASK-041 (M0; su DoD incluye el ruleset) | OPEN |
+| TD-041 | Aprobación de los workflows de fork solo para contribuidores primerizos (`first_time_contributors`): desde su segundo PR, un contribuidor externo ejecuta CI sin aprobación (abuso de cómputo; sin secretos ni escritura). | LOW | TASK-006 (security) | TASK-041 (M0) | OPEN |
+| TD-042 | `allowed_actions: all` y `sha_pinning_required: false` en la configuración de Actions: hoy todas las acciones van fijadas por SHA, pero nada lo exige. | LOW | TASK-006 (security) | TASK-041 (M0) | OPEN |
+| TD-043 | `# syntax=docker/dockerfile:1` sin digest en `docker/worker.Dockerfile:1` y `docker/web.Dockerfile:1`: el frontend de BuildKit se descarga de Docker Hub sin fijar. | LOW | TASK-006 (security) | TASK-040 (M0) | OPEN |
+| TD-044 | `.githooks/pre-commit:8`, `for f in $files`, parte los nombres por espacios y aplica globbing: un fichero con espacios en el nombre y un secreto pasa sin escanear (falso negativo). | LOW | TASK-006 (reviewer, security) | El humano, al cerrar TASK-009 (el hook es suyo) | OPEN |
+| TD-045 | `scripts/ci/check-node-version.sh` compara la versión de Node, no el digest de la imagen en los Dockerfiles y en `NODE_IMAGE`. | LOW | TASK-006 (reviewer) | TASK-042 (M0) | OPEN |
+| TD-046 | El endpoint de audit de pnpm 9 está en retirada; el job `audit` depende de él. | LOW | TASK-006 (plan, aprobada) | TASK-040 (M0) | OPEN |
+| TD-047 | `secrets-scan` solo revisa HEAD, no el historial (pendiente de gitleaks o equivalente sobre el historial). | LOW | TASK-006 (plan, aprobada) | TASK-037 (M5) | OPEN |
+| TD-048 | Los SHA de las acciones de CI no se actualizan solos (sin Dependabot de actions). | LOW | TASK-006 (plan, aprobada) | TASK-040 (M0) | OPEN |
 
 ## Reglas
 
