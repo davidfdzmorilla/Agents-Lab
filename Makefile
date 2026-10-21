@@ -8,6 +8,8 @@ export TURBO_TELEMETRY_DISABLED := 1
 
 NODE_IMAGE := node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 PNPM_STORE_VOLUME := agentlab-pnpm-store
+# Root files (eslint.config.js, future root *.js/*.ts); workspaces are linted by `pnpm -r lint` (TD-007).
+LINT_ROOT := pnpm exec eslint --ignore-pattern "apps/**" --ignore-pattern "packages/**" .
 
 # The host filters the repo with tar and streams it over stdin; the container never mounts the repo,
 # so excluded files (.env*, .git, node_modules) cannot reach it. Patterns are unanchored names that
@@ -66,13 +68,13 @@ test:               ## Tests en contenedor contra db de compose (requiere .env; 
 	set -o pipefail; $(LOCK_TAR) | $(DOCKER_NODE) '$(FETCH)'
 	set -o pipefail; $(HOST_TAR) | $(TEST_RUN) '$(IN_TEST) && pnpm test'
 
-validate:           ## typecheck + lint + test + format:check en contenedor, tests contra db (TD-008)
+validate:           ## typecheck + lint (workspaces y raíz) + test + format:check en contenedor, tests contra db (TD-008)
 	@docker volume create $(PNPM_STORE_VOLUME) >/dev/null
 	set -o pipefail; $(LOCK_TAR) | $(DOCKER_NODE) '$(FETCH)'
-	set -o pipefail; $(HOST_TAR) | $(TEST_RUN) '$(IN_TEST) && pnpm -r typecheck && pnpm -r lint && pnpm test && pnpm format:check'
+	set -o pipefail; $(HOST_TAR) | $(TEST_RUN) '$(IN_TEST) && pnpm -r typecheck && pnpm -r lint && $(LINT_ROOT) && pnpm test && pnpm format:check'
 
-lint:               ## Lint
-	pnpm -r lint
+lint:               ## Lint de los workspaces y de los ficheros de configuración de la raíz (TD-007)
+	pnpm -r lint && $(LINT_ROOT)
 
 typecheck:          ## Typecheck
 	pnpm -r typecheck
