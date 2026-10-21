@@ -4,6 +4,8 @@ import {
   canTransition,
   isTerminalRunStatus,
   loadTestDatabaseUrl,
+  type InvocationError,
+  InvocationErrorSchema,
   type RunStatus,
 } from "@agentlab/core";
 import { eq, sql } from "drizzle-orm";
@@ -13,6 +15,7 @@ import { createDatabase, createPool } from "../pool.js";
 import { runs } from "../schema/index.js";
 import {
   createQueuedRun,
+  createRunningRun,
   createScope,
   type TestScope,
 } from "../testing/fixtures.js";
@@ -181,5 +184,185 @@ describe("heartbeat", () => {
   it("returns false when the run is not running", async () => {
     const run = await createQueuedRun(db, scope);
     expect(await repo.heartbeat(run.id, "w1")).toBe(false);
+  });
+});
+
+describe("failOrphaned", () => {
+  const error: InvocationError = {
+    code: "WORKER_INTERRUPTED",
+    message: "Worker stopped before the run finished",
+    retryable: false,
+  };
+  const current = "hostA/current";
+  const FRESH = 5_000;
+  const OLD = 120_000;
+  const STALE_MS = 60_000;
+
+  async function seed() {
+    const staleOtherHost = await createRunningRun(db, scope, {
+      workerId: "hostB/old",
+      heartbeatAgeMs: OLD,
+    });
+    const previousRunSameHost = await createRunningRun(db, scope, {
+      workerId: "hostA/previous",
+      heartbeatAgeMs: FRESH,
+    });
+    const nullHeartbeat = await createRunningRun(db, scope, {
+      workerId: "hostB/nohb",
+      heartbeatAgeMs: null,
+    });
+    const freshOtherHost = await createRunningRun(db, scope, {
+      workerId: "hostB/live",
+      heartbeatAgeMs: FRESH,
+    });
+    const ownFresh = await createRunningRun(db, scope, {
+      workerId: current,
+      heartbeatAgeMs: FRESH,
+    });
+    const ownOld = await createRunningRun(db, scope, {
+      workerId: current,
+      heartbeatAgeMs: OLD,
+    });
+    const prefixTrap = await createRunningRun(db, scope, {
+      workerId: "hostAA/other",
+      heartbeatAgeMs: FRESH,
+    });
+    const queued = await createQueuedRun(db, scope);
+    const awaiting = {
+      ...(await runInStatus("awaiting_approval")),
+      status: "awaiting_approval",
+    };
+    const completed = {
+      ...(await runInStatus("completed")),
+      status: "completed",
+    };
+    return {
+      staleOtherHost,
+      previousRunSameHost,
+      nullHeartbeat,
+      untouched: [
+        freshOtherHost,
+        ownFresh,
+        ownOld,
+        prefixTrap,
+        queued,
+        awaiting,
+        completed,
+      ],
+    };
+  }
+
+  async function expectUntouched(
+    ids: readonly { id: string; status: string }[],
+  ) {
+    for (const before of ids) {
+      expect((await repo.get(before.id))?.status).toBe(before.status);
+    }
+  }
+
+  it("marks stale, null-heartbeat and previous same-host runs with hostPrefix", async () => {
+    const rows = await seed();
+    const ids = await repo.failOrphaned({
+      currentWorkerId: current,
+      staleMs: STALE_MS,
+      error,
+      hostPrefix: "hostA/",
+    });
+    expect([...ids].sort()).toEqual(
+      [
+        rows.staleOtherHost.id,
+        rows.previousRunSameHost.id,
+        rows.nullHeartbeat.id,
+      ].sort(),
+    );
+    await expectUntouched(rows.untouched);
+  });
+
+  it("ignores the host criterion without hostPrefix", async () => {
+    const rows = await seed();
+    const ids = await repo.failOrphaned({
+      currentWorkerId: current,
+      staleMs: STALE_MS,
+      error,
+    });
+    expect([...ids].sort()).toEqual(
+      [rows.staleOtherHost.id, rows.nullHeartbeat.id].sort(),
+    );
+    expect((await repo.get(rows.previousRunSameHost.id))?.status).toBe(
+      "running",
+    );
+    await expectUntouched(rows.untouched);
+  });
+
+  it("never marks the current worker even with an expired heartbeat", async () => {
+    const own = await createRunningRun(db, scope, {
+      workerId: current,
+      heartbeatAgeMs: OLD,
+    });
+    for (const hostPrefix of [undefined, "hostA/"]) {
+      const ids = await repo.failOrphaned({
+        currentWorkerId: current,
+        staleMs: STALE_MS,
+        error,
+        ...(hostPrefix === undefined ? {} : { hostPrefix }),
+      });
+      expect(ids).toEqual([]);
+    }
+    expect((await repo.get(own.id))?.status).toBe("running");
+  });
+
+  it("stores the error, finished_at and a refreshed updated_at on marked runs", async () => {
+    const run = await createRunningRun(db, scope, {
+      workerId: "hostB/old",
+      heartbeatAgeMs: OLD,
+    });
+    await repo.failOrphaned({
+      currentWorkerId: current,
+      staleMs: STALE_MS,
+      error,
+    });
+    const after = await repo.get(run.id);
+    expect(after?.status).toBe("failed");
+    expect(after?.error).toEqual(error);
+    expect(InvocationErrorSchema.safeParse(after?.error).success).toBe(true);
+    expect(after?.finishedAt).not.toBeNull();
+    expect(after?.updatedAt.getTime()).toBeGreaterThan(run.updatedAt.getTime());
+  });
+
+  it("relies on running to failed being an allowed transition", () => {
+    expect(canTransition("running", "failed")).toBe(true);
+  });
+
+  it("does not mark a run whose heartbeat is refreshed by an uncommitted transaction", async () => {
+    const run = await createRunningRun(db, scope, {
+      workerId: "hostB/old",
+      heartbeatAgeMs: OLD,
+    });
+    const client = await pool.connect();
+    let sweep: Promise<string[]> | undefined;
+    try {
+      await client.query("begin");
+      await client.query(
+        "update runs set worker_heartbeat_at = now() where id = $1",
+        [run.id],
+      );
+      let settled = false;
+      sweep = repo
+        .failOrphaned({ currentWorkerId: current, staleMs: STALE_MS, error })
+        .finally(() => {
+          settled = true;
+        });
+      // Let the sweep reach the row lock; it must still be waiting.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(settled).toBe(false);
+      await client.query("commit");
+    } catch (cause) {
+      await client.query("rollback");
+      throw cause;
+    } finally {
+      client.release();
+    }
+    expect(await sweep).toEqual([]);
+    expect((await repo.get(run.id))?.status).toBe("running");
   });
 });

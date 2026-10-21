@@ -13,6 +13,8 @@ El subagente arranca **sin la conversación**. El packet es su único contexto a
 TASK PACKET — TASK-NNN · <título literal de TASKS.md>
 Owner: <subagente>
 Hito: M<n>
+Fecha: <salida de date +%F>
+Credenciales de prueba: <solo si el encargo usa la base; desechables, las mismas en todo el hito>
 Fase: implementación | verificación(tester|reviewer|security) | corrección(ciclo k/3) | cierre | commit(PREPARE|EXECUTE) | plan | open-decision
 
 Objetivo (1-3 frases):
@@ -48,8 +50,11 @@ Entregable:
 ```
 
 ## Reglas
+- La fecha sale de `date +%F` ejecutado al construir el encargo; nunca de memoria ni copiada de un encargo anterior.
+- El Orchestrator rellena siempre `Fecha:` con `date +%F` ejecutado al construir el encargo. `docs-keeper` y `committer` (sin Bash o sin acceso a `date`) escriben como fecha la del campo `Fecha:` de su encargo.
 - El DoD va **literal**, no parafraseado: es lo que el tester verificará.
 - El scope del packet coincide con `.claude/task-scope.json`; si no, el hook bloqueará al owner.
 - En verificación, el packet del `tester` incluye el `IMPLEMENTATION`; el del `reviewer` incluye `IMPLEMENTATION` + `TEST`; el del `security`, los tres.
 - En `commit`, el packet incluye `allow` y, en EXECUTE, la cita de la confirmación humana, la lista exacta de ficheros y el mensaje exacto.
 - Nunca incluyas secretos, ni siquiera "para que funcione el test".
+- Credenciales de prueba: las rellena el Orchestrator con una contraseña desechable, la misma en todos los encargos del hito; el agente solo las exporta en la shell de sus invocaciones, nunca en ficheros, código, informes ni commits. Si la contraseña del volumen y la del encargo no coinciden, el agente lo reporta y para, no la busca (ni en contenedores ni en `.env`).

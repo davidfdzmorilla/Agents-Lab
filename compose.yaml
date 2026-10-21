@@ -10,7 +10,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    networks: [backend]
+    networks: [backend, test-db]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U agentlab -d agentlab"]
       interval: 5s
@@ -22,6 +22,8 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
       target: migrate
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     networks: [backend]
     depends_on:
       db:
@@ -53,8 +55,10 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
       target: runtime
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     init: true
-    # Must stay above SHUTDOWN_GRACE_MS (30000 ms) plus margin.
+    # Must stay above SHUTDOWN_GRACE_MS (30000 ms) plus the 5 s shutdown margin.
     stop_grace_period: 40s
     networks: [backend, egress]
     depends_on:
@@ -66,6 +70,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:?set it in .env (cp .env.example .env)}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-}
       WORKER_HEARTBEAT_MS: ${WORKER_HEARTBEAT_MS:-}
+      WORKER_POLL_MS: ${WORKER_POLL_MS:-}
       WORKER_STALE_MS: ${WORKER_STALE_MS:-}
       SHUTDOWN_GRACE_MS: ${SHUTDOWN_GRACE_MS:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
@@ -76,16 +81,16 @@ services:
       AGENTLAB_PROVIDER: ${AGENTLAB_PROVIDER:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
 
-  # Run by make test / make validate only. Reaches db through the internal backend network (no internet).
+  # Run by make test / make validate only. Reaches db through the internal test-db network (no internet, no other services).
   test:
     profiles: ["test"]
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
-      target: base
+      target: test
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
-    networks: [backend]
+    networks: [test-db]
     depends_on:
       db:
         condition: service_healthy
@@ -99,7 +104,6 @@ services:
       TURBO_TELEMETRY_DISABLED: "1"
     volumes:
       - pnpm-store:/pnpm-store:ro
-      - validate-node-modules:/work/node_modules
 
   ollama:
     profiles: ["local"]
@@ -111,6 +115,8 @@ services:
 networks:
   backend:
     internal: true
+  test-db:
+    internal: true
   egress: {}
 
 volumes:
@@ -120,6 +126,3 @@ volumes:
   pnpm-store:
     external: true
     name: agentlab-pnpm-store
-  validate-node-modules:
-    external: true
-    name: agentlab-validate-node-modules

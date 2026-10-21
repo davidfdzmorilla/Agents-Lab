@@ -21,7 +21,7 @@ description: "Convenciones de tests de AgentLab (Vitest, PostgreSQL real, FakePr
 8. Tests de transición de estados: tabla exhaustiva (todas las combinaciones de `ARCHITECTURE.md §5`), no muestras.
 9. Tests de seguridad (M4+): en `tests/security/`; siempre con el vector nombrado en el título.
 10. **Lo que corre en el host (Makefile, hooks, scripts) se prueba en macOS y en Linux.** Motivo: en TASK-003 `.SHELLFLAGS` funcionaba en GNU Make ≥ 3.82 (Linux) pero se ignoraba en GNU Make 3.81 (macOS), y bsdtar y GNU tar difieren.
-11. **Tests de integración contra PostgreSQL en serie.** Se nombran `*.integration.test.ts` y corren en serie: un solo runner y `fileParallelism: false` para esos ficheros. Motivo: comparten la base `agentlab_test` y sus resets chocarían entre paquetes (decisión humana en el plan de TASK-005, riesgo R6).
+11. **Tests de integración contra PostgreSQL en serie.** Se nombran `*.integration.test.ts` y corren en serie: un solo runner y `fileParallelism: false` para esos ficheros. Motivo: comparten la base `agentlab_test` y sus resets chocarían entre paquetes (decisión humana en el plan de TASK-005, riesgo R6). Mecanismo entre paquetes: `pnpm test` en la raíz ejecuta `turbo run test --concurrency=1` (OD-034, TASK-008); cada paquete con integración mantiene `fileParallelism: false`.
 
 ## Comandos
 ```

@@ -6,6 +6,7 @@ describe("public API", () => {
     expect(Object.keys(persistence).sort()).toEqual(
       [
         "CHECKPOINT_SCHEMA",
+        "checkpointSchemaExists",
         "createAgentDefinitionsRepository",
         "createDatabase",
         "createEventsRepository",

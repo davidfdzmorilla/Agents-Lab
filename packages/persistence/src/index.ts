@@ -1,4 +1,7 @@
-export { CHECKPOINT_SCHEMA } from "./checkpointer/setup.js";
+export {
+  CHECKPOINT_SCHEMA,
+  checkpointSchemaExists,
+} from "./checkpointer/setup.js";
 export { runMigrations } from "./migrate.js";
 export { createDatabase, createPool, type Database } from "./pool.js";
 export * from "./repositories/agent-definitions.js";

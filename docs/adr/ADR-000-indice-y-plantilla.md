@@ -18,8 +18,9 @@
 | ADR-006 | Sistema de agentes de desarrollo con Claude Code y política de commits | Accepted |
 | ADR-007 | PostgreSQL como fuente de verdad; eventos con `seq` y `LISTEN/NOTIFY` | Accepted |
 | ADR-008 | Licencia Apache-2.0 | Proposed (se acepta en M5) |
-| ADR-009 | Ejecución de TypeScript en runtime con tsx | Accepted |
+| ADR-009 | Ejecución de TypeScript en runtime con tsx | Accepted (§7: fallback `node --import tsx` activado en TASK-008, 2026-10-21) |
 | ADR-010 | `tsx` también en `packages/persistence` para `db:migrate` y `db:reset` | Accepted (2026-10-20; `tsx` dev de `persistence`, amplía ADR-009 §2) |
+| ADR-011 | Imágenes `worker` y `migrate` construidas con `pnpm deploy` | Accepted (2026-10-21, con dos condiciones: lockfile congelado en cada stage de deploy; limpieza del `package.json` raíz en `migrate` como deuda LOW) |
 
 ## Reglas
 

@@ -17,6 +17,7 @@ export const EnvSchema = z.object({
   WORKER_CONCURRENCY: positiveInt(1),
   WORKER_HEARTBEAT_MS: positiveInt(15000),
   WORKER_STALE_MS: positiveInt(60000),
+  WORKER_POLL_MS: positiveInt(1000),
   SHUTDOWN_GRACE_MS: positiveInt(30000),
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])

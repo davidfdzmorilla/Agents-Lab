@@ -1,8 +1,9 @@
+import { eq, sql } from "drizzle-orm";
 import type { Budget } from "@agentlab/core";
 import type { Database } from "../pool.js";
 import { createProjectsRepository } from "../repositories/projects.js";
 import { createRunsRepository } from "../repositories/runs.js";
-import { teamDefinitions, type Run } from "../schema/index.js";
+import { runs, teamDefinitions, type Run } from "../schema/index.js";
 
 export const TEST_BUDGET: Budget = {
   maxModelCalls: 10,
@@ -51,4 +52,33 @@ export function createQueuedRun(db: Database, scope: TestScope): Promise<Run> {
     },
     budget: TEST_BUDGET,
   });
+}
+
+export interface RunningRunOptions {
+  readonly workerId: string | null;
+  /** Age of the heartbeat in ms, computed by the database clock; null leaves it unset. */
+  readonly heartbeatAgeMs: number | null;
+}
+
+export async function createRunningRun(
+  db: Database,
+  scope: TestScope,
+  options: RunningRunOptions,
+): Promise<Run> {
+  const queued = await createQueuedRun(db, scope);
+  const [row] = await db
+    .update(runs)
+    .set({
+      status: "running",
+      workerId: options.workerId,
+      workerHeartbeatAt:
+        options.heartbeatAgeMs === null
+          ? null
+          : sql`now() - ${options.heartbeatAgeMs} * interval '1 millisecond'`,
+      startedAt: sql`now()`,
+    })
+    .where(eq(runs.id, queued.id))
+    .returning();
+  if (row === undefined) throw new TypeError("run update returned no row");
+  return row;
 }

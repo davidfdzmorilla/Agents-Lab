@@ -38,6 +38,7 @@ describe("loadEnv", () => {
       WORKER_CONCURRENCY: 1,
       WORKER_HEARTBEAT_MS: 15000,
       WORKER_STALE_MS: 60000,
+      WORKER_POLL_MS: 1000,
       SHUTDOWN_GRACE_MS: 30000,
       LOG_LEVEL: "info",
       LANGCHAIN_TRACING_V2: "false",
@@ -55,6 +56,20 @@ describe("loadEnv", () => {
     expect(env.WORKER_CONCURRENCY).toBe(4);
     expect(env.LANGCHAIN_TRACING_V2).toBe("true");
     expect(env.AGENTLAB_PROVIDER).toBe("gemini");
+  });
+
+  it("coerces WORKER_POLL_MS from a string", () => {
+    const env = loadEnv({ DATABASE_URL: DB, WORKER_POLL_MS: "250" });
+    expect(env.WORKER_POLL_MS).toBe(250);
+  });
+
+  it("rejects non-positive and non-numeric WORKER_POLL_MS", () => {
+    expect(() => loadEnv({ DATABASE_URL: DB, WORKER_POLL_MS: "0" })).toThrow(
+      /WORKER_POLL_MS/,
+    );
+    expect(() => loadEnv({ DATABASE_URL: DB, WORKER_POLL_MS: "abc" })).toThrow(
+      /WORKER_POLL_MS/,
+    );
   });
 
   it("rejects invalid numbers, enums and tracing flag", () => {

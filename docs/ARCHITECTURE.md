@@ -14,12 +14,19 @@ Tres procesos en Docker Compose + dos opcionales + dos de un solo uso (`migrate`
 | Servicio | Imagen / base | Puerto expuesto | Responsabilidad |
 |---|---|---|---|
 | `web` | Node 22 + Next.js | `3000` (host) | UI + API HTTP/SSE. Crea runs, lee estado, emite eventos. **Nunca** ejecuta agentes. |
-| `worker` | Node 22 | ninguno | Reclama runs `queued`, ejecuta el grafo, persiste eventos y checkpoints. |
+| `worker` | Node 22 (stage `runtime` de `docker/worker.Dockerfile`, `pnpm deploy`, ADR-011) | ninguno | Reclama runs `queued`, ejecuta el grafo, persiste eventos y checkpoints. CMD `["node", "--import", "tsx", "src/index.ts"]` bajo `init: true` (OD-032). Redes `backend` y `egress`. |
 | `db` | PostgreSQL 16 | ninguno (solo red interna; `5432` en host opcional vía `compose.override`) | Fuente de verdad. |
 | `ollama` (opcional, perfil `local`) | ollama/ollama | ninguno | Inferencia local. |
 | `otel-collector` (opcional, perfil `observability`, M3) | otel/opentelemetry-collector | ninguno | Recepción de trazas OTel. |
-| `migrate` (one-shot, TASK-005) | Node 22 (stage propio `migrate` de `docker/worker.Dockerfile`, OD-026) | ninguno | `pnpm db:migrate`: migraciones de Drizzle y `setup()` del checkpointer, serializadas con `pg_advisory_xact_lock`; sale. Solo red `backend` y solo recibe `DATABASE_URL`. `web` y `worker` arrancan cuando termina con éxito. Imagen con las `devDependencies` de `persistence` (`tsx` es dev, ADR-010), instalada con `--ignore-scripts` (`fetch` e `install`); **no se reutiliza para `worker` ni `web`**: ningún otro servicio la usa como `target` y ningún stage parte de ella (`FROM`/`COPY --from`). |
-| `test` (one-shot, perfil `test`, TASK-005) | Node 22 (stage `base` de `docker/worker.Dockerfile`) | ninguno | Fase 2 de `make test`/`make validate` (OD-019): instala sin red y corre los tests contra `agentlab_test`. Solo red `backend` (sin internet). Único servicio que recibe `DATABASE_URL_TEST`. `make test` deja `db` en marcha; se para con `make down`. |
+| `migrate` (one-shot, TASK-005) | Node 22 (stage `migrate` de `docker/worker.Dockerfile`, `pnpm deploy` de `@agentlab/persistence`, ADR-011, OD-026) | ninguno | CMD `["tsx", "src/cli/migrate.ts"]` (el mismo punto de entrada que `pnpm db:migrate`, ADR-010): migraciones de Drizzle y `setup()` del checkpointer, serializadas con `pg_advisory_xact_lock`; sale. Solo red `backend` y solo recibe `DATABASE_URL`. `web` y `worker` arrancan cuando termina con éxito. La imagen conserva las `devDependencies` de `persistence` (`drizzle-kit`, `tsx`; ADR-010) pero no las de la raíz (condición 2 de ADR-011); **no se reutiliza para `worker` ni `web`**: ningún otro servicio la usa como `target` y ningún stage parte de ella (`FROM`/`COPY --from`). |
+| `test` (one-shot, perfil `test`, TASK-005) | Node 22 (stage `test` de `docker/worker.Dockerfile`: `base` con pnpm, uid 1000 `node`, sin salida de `deploy`) | ninguno | Fase 2 de `make test`/`make validate` (OD-019): recibe el árbol del host por `tar`, instala sin red (`--offline`, store `pnpm-store` montado `:ro`, sin volumen de `node_modules`) y corre los tests contra `agentlab_test`. Solo red `test-db` (`internal: true`, únicamente `db` y `test`). Único servicio que recibe `DATABASE_URL_TEST`. `make test` deja `db` en marcha; se para con `make down`. |
+
+Imágenes de `docker/worker.Dockerfile` (TASK-008, ADR-011; verificado el 2026-10-21):
+- `runtime` y `migrate` se construyen con `pnpm deploy --ignore-scripts`, precedido de `pnpm install --frozen-lockfile --lockfile-only --ignore-scripts --offline` (condición 1 de ADR-011). Parten del stage `slim`, que borra `npm`, `npx`, `corepack` y `yarn` (no se pueden ejecutar; los bytes siguen en la capa base, ADR-011), y corren como `USER node` (uid 1000). No contienen el monorepo, solo el paquete desplegado y su cierre de dependencias.
+- `migrate`, `worker` y `test` llevan `cap_drop: [ALL]` y `security_opt: ["no-new-privileges:true"]` en `compose.yaml`.
+- `.dockerignore` es una lista de inclusión: `*` y se reincluyen solo `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc`, `apps/` y `packages/`, con las exclusiones de `HOST_TAR` del Makefile a cualquier nivel y además `*.pem`, `*.key`, `.next`, `dist`, `coverage`, `*.log` y `.DS_Store`.
+- Redes: `backend` (`internal: true`: `db`, `migrate`, `web`, `worker`, `ollama`), `test-db` (`internal: true`: `db` y `test`) y `egress` (`web`, `worker`, `ollama`).
+- TD-021 sigue abierta (MEDIUM) en la parte del rol: `test` se conecta a PostgreSQL como superusuario hasta TASK-037. La parte de la red queda resuelta con `test-db`.
 
 Reglas:
 - `web` y `worker` comparten `packages/*` pero **no** comparten proceso ni memoria.
@@ -176,6 +183,8 @@ El repositorio añade al mismo `INSERT … SELECT` las columnas `type` y `payloa
 | `queued` \| `running` \| `awaiting_approval` | `cancelled` | `POST /cancel` |
 | `running` | `queued` | heartbeat caducado (recuperación) |
 
+Hasta TASK-026, «heartbeat caducado» no lleva a `queued`: el worker marca esos runs `failed` (`running → failed`, `runs.error.code` `WORKER_INTERRUPTED`) al arrancar y cada `WORKER_STALE_MS` (ver §8). La fila `running → queued` entra en uso con la reanudación de TASK-026.
+
 Estados terminales: `completed`, `partial`, `failed`, `cancelled`. Un run terminal nunca cambia de estado.
 
 ## 6. Modelo de datos (esquema Drizzle)
@@ -223,7 +232,12 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 - Bucle: `claimNext()` → `runGraph(run)` → `heartbeat` cada 15 s en paralelo → `finalize`.
 - Un único run a la vez por proceso worker en v1 (`WORKER_CONCURRENCY=1`). Elevarlo es config, no código.
 - Apagado limpio: `SIGTERM` → deja de reclamar, espera al run actual hasta `SHUTDOWN_GRACE_MS` (30 s), guarda checkpoint, sale.
-- Arranque: `tsx watch src/index.ts` en desarrollo y `tsx src/index.ts` en Docker (ADR-009); fallback `node --import tsx` si el apagado por `SIGTERM` falla.
+- Arranque: `tsx watch src/index.ts` en desarrollo y `node --import tsx src/index.ts` en `start` y en Docker. Es el fallback de ADR-009 §7, activado en TASK-008 (OD-032, 2026-10-21): el CLI `tsx` da 30 ms al proceso hijo para confirmar la señal y después le manda `SIGKILL` (código 143), así que un bucle de eventos ocupado más de 30 ms rompía el apagado limpio.
+- Identidad: `worker_id = <hostname>/<uuid>`, nuevo en cada arranque.
+- Runs huérfanos (M0–M2, TASK-008; OD-033, OD-037, OD-038). `runs.error` = `InvocationError` de `core` con `code` `WORKER_INTERRUPTED`, mensaje fijo y `retryable: false`. `WORKER_INTERRUPTED` es solo un valor de `runs.error.code`, no un `AgentLabErrorCode`. Sin evento en M0; `run.failed` llega con TASK-015. Dos momentos, una sola sentencia cada uno (`failOrphaned`), que nunca marca el `worker_id` actual:
+  - **Al arrancar**, tras comprobar el esquema y antes de la primera reclamación: runs `running` con heartbeat caducado (`WORKER_STALE_MS`) o nulo, o con un `worker_id` de una ejecución anterior del mismo host. Un error aquí termina el proceso con código 1.
+  - **Cada `WORKER_STALE_MS`**, con un temporizador propio independiente de los bucles de reclamación, sin solaparse consigo mismo y parado por el apagado antes de cerrar el pool: solo heartbeat caducado o nulo, nunca el criterio de host. Un error aquí es `warn` y se reintenta en el siguiente periodo. El worker exige `WORKER_HEARTBEAT_MS < WORKER_STALE_MS` al arrancar (código 1 si no).
+  - Es la detección de la recuperación de §4; TASK-026 añade la reanudación (`queued` + checkpoint) sobre los mismos dos momentos.
 
 ## 9. Versiones y herramientas
 

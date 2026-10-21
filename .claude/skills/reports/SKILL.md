@@ -15,9 +15,16 @@ Regla decidida por el humano: "un hallazgo solo se cierra con cita literal del f
 - Sin cita, el hallazgo cuenta como no resuelto.
 - La cita cuenta dentro de las 30 líneas de la regla general.
 
+## Fechas
+
+- Cada informe lleva en su cabecera `Fecha: <salida de date +%F>`.
+- Toda fecha que el informe escriba en un documento sale también de `date +%F` ejecutado en ese momento; nunca de memoria ni copiada de un encargo o informe anterior.
+- Excepción: `docs-keeper` y `committer` toman la fecha del campo `Fecha:` de su encargo (que el Orchestrator rellena con `date +%F`), porque no pueden ejecutar `date`. Si el encargo no trae `Fecha:`, no la inventan: lo indican en el informe.
+
 ## PLAN (architect)
 ```
 ## PLAN — TASK-NNN
+Fecha: <salida de date +%F>
 Contexto: <3 líneas>
 Decisiones:
   - <decisión> — alternativa descartada: <x> porque <y>
@@ -32,6 +39,7 @@ OPEN DECISIONS: <OD-? qué falta, opciones, recomendación> | ninguna
 ## IMPLEMENTATION (owner)
 ```
 ## IMPLEMENTATION — TASK-NNN
+Fecha: <salida de date +%F>
 Hecho: <qué existe ahora, 3-8 líneas>
 Ficheros: creados <lista> · modificados <lista>
 Cómo probarlo: <comandos>
@@ -48,6 +56,7 @@ Dudas: <…> | ninguna
 ## TEST (tester)
 ```
 ## TEST — TASK-NNN
+Fecha: <salida de date +%F>
 Comandos: <lista con resultado resumido>
 DoD:
   | # | Viñeta (literal) | Resultado | Evidencia |
@@ -63,6 +72,7 @@ Si FAIL: <viñeta, fallo exacto, cómo reproducir>
 ## REVIEW (reviewer)
 ```
 ## REVIEW — TASK-NNN
+Fecha: <salida de date +%F>
 Hallazgos:
   - [BLOCKER|MAJOR|MINOR|NIT] fichero:línea — <qué> — <qué cambiar>
 Cumplimiento: SPEC ✅/❌ · ARCHITECTURE ✅/❌ · ADRs ✅/❌ · DoD ✅/❌ · plan ✅/❌
@@ -76,6 +86,7 @@ Veredicto: APPROVED | CHANGES_REQUESTED
 ## SECURITY (security)
 ```
 ## SECURITY — TASK-NNN
+Fecha: <salida de date +%F>
 Vectores revisados: secretos · inyección · SSRF · presupuesto · autoaprobación · docker/ci · garantías dev · dependencias
 Hallazgos:
   - [CRITICAL|HIGH|MEDIUM|LOW] fichero:línea — impacto — corrección mínima
@@ -86,6 +97,7 @@ Veredicto: APPROVED | BLOCKED
 ## CLOSURE (docs-keeper)
 ```
 ## CLOSURE — TASK-NNN
+Fecha: <salida de date +%F>
 Ficheros tocados: <lista exacta>
 TASKS.md: TASK-NNN → DONE; desbloqueadas: <lista> | ninguna
 Deuda registrada: <TD-nnn …> | ninguna
@@ -95,6 +107,7 @@ README actualizado: sí (<qué>) | no
 ## COMMIT (committer)
 ```
 ## COMMIT — TASK-NNN — phase: PREPARE | EXECUTE
+Fecha: <salida de date +%F>
 Ficheros incluidos: <lista>
 Ficheros excluidos: <ruta — motivo> | ninguno
 Mensaje:

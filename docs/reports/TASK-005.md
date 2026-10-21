@@ -7,7 +7,7 @@
 | Estado | DONE |
 | Owner | persistence-dev (reparto por pasos: devops, core-dev, persistence-dev) |
 | Depende de | TASK-003, TASK-004 |
-| Fecha de cierre | 2026-10-21 |
+| Fecha de cierre | 2026-10-20 |
 | Plan | `docs/reports/TASK-005-plan.md` (architect) |
 | Veredicto TEST | PASS (ciclo 1 y re-test del ciclo 1/3: 22/22 viñetas) |
 | Veredicto REVIEW | APPROVED (re-review del ciclo 1/3 y revisión acotada de exports del esquema + `restoreMocks`). Primera revisión: CHANGES_REQUESTED |
@@ -22,7 +22,7 @@
 - Verificación final: `make validate` y `make test` con exit 0; core 7 ficheros / 169 tests (100 % de cobertura); persistence 6 ficheros / 93 tests tras la corrección acotada (92 en el re-test del ciclo 1/3); `public|8`, `langgraph|4`, `drizzle|1` tras `docker compose up`.
 - Cobertura de persistence: 74,2 % de líneas (sin objetivo en el DoD). Los repositorios están entre el 98 % y el 100 %.
 
-## Decisiones humanas (2026-10-20 y 2026-10-21)
+## Decisiones humanas (2026-10-20)
 
 1. **ADR-010 Accepted** (2026-10-20): `tsx` 4.23.15 entra en `devDependencies` de `packages/persistence`, solo para sus scripts `db:*`. Amplía ADR-009 §2 sin contradecirlo; `tsx` sigue siendo dependencia de runtime solo de `apps/worker`.
 2. **OD-019 … OD-025** (2026-10-20), resueltas tal como recomendó el plan: dos fases para `make test`/`validate` (OD-019); `loadTestDatabaseUrl()` en `core` (OD-020); tabla de columnas del plan, sin columnas "por si acaso" (OD-021); bloqueo de fila del run + `MAX+1` y corrección de ARCHITECTURE §3.4 (OD-022); **sin `CHECK` en la base** para `api_key_env`, validación en el repositorio (OD-023, se descartó la opción recomendada por el plan: un valor rechazado no debe aparecer en los logs de `db`); esquema `drizzle` para la tabla de control (OD-024); `create`/`get`/`list` y `null` si el id no existe (OD-025).
@@ -30,12 +30,12 @@
 4. **`--ignore-scripts` en la fase offline de tests** (2026-10-20): la instalación de la fase 2 de `make test` no ejecuta scripts de dependencias con acceso a `db` como superusuario.
 5. **Paso 4b** (2026-10-20): devops completa `test` y `typecheck` de `persistence` después del paso 4, para que `make validate` y `make test` ejecuten sus tests a través de turbo.
 6. **testing-conventions alineada antes del paso 3** (2026-10-20): la regla de integración apunta a `src/**/*.integration.test.ts` y no a `tests/integration/`; `resetTestDatabase(testUrl)` sustituye a `resetTestDb()`; `make test` sustituye a `pnpm test:integration`. Tras el cierre quedan además la regla 11 (tests de integración en serie) y la regla 2 (proveedores reales en `tests/integration/providers/`), cada una con su cita en el informe correspondiente.
-7. **Imagen `migrate` sin las devDependencias de la raíz** (2026-10-21): pnpm 9 con `--frozen-lockfile` instala siempre el importer raíz, así que la exclusión no se pudo conseguir sin rediseño. Decisión humana (opción A): aceptarlo como deuda, **TD-020** LOW, que se paga en TASK-008 junto con TD-015.
-8. **`DATABASE_URL_TEST` en `migrate`** (2026-10-21): el humano exigió verificarlo directamente y no vale "por construcción" como evidencia. El bloqueo del hook impidió la comprobación con `env` en el contenedor; la verificación final se hizo con `docker compose --profile '*' config`, que muestra `DATABASE_URL_TEST` solo en el servicio `test` (ver sección de informes, TEST).
-9. **`t5.mk` del scratchpad** (2026-10-21): el humano lo calificó de uso aceptable de Write, sin incidencia: "Un Makefile auxiliar en el scratchpad es exactamente para lo que hemos abierto Write fuera del repo; no rodea ningún bloqueo".
-10. **Exportación del esquema** (2026-10-21): hueco de diseño detectado en la revisión y corregido dentro de la tarea. `index.ts` solo exporta tipos del esquema (`export type { … }`) y repositorios; las tablas Drizzle ya no salen como valor. Se añade `packages/persistence/src/index.test.ts` y `restoreMocks: true` en `vitest.config.ts`.
-11. **Códigos de error** (2026-10-21): `RowNotFoundError` (`ROW_NOT_FOUND`) e `InvalidEventPayloadError` (`EVENT_PAYLOAD_INVALID`) se deciden como códigos del proyecto (no son OD). Se implementan en TASK-014 (`rows.ts`) y TASK-024 (`events.ts`); sus DoD ya lo recogen.
-12. **NITs sin acción** (2026-10-21): canario en mayúsculas en el caso de 41 caracteres (el canario actual tiene minúsculas y se rechaza por la regex); test del `ROLLBACK` del tester no incorporado al repo; `release(true)` en lugar de `release(failure)` en `migrate.ts`.
+7. **Imagen `migrate` sin las devDependencias de la raíz** (2026-10-20): pnpm 9 con `--frozen-lockfile` instala siempre el importer raíz, así que la exclusión no se pudo conseguir sin rediseño. Decisión humana (opción A): aceptarlo como deuda, **TD-020** LOW, que se paga en TASK-008 junto con TD-015.
+8. **`DATABASE_URL_TEST` en `migrate`** (2026-10-20): el humano exigió verificarlo directamente y no vale "por construcción" como evidencia. El bloqueo del hook impidió la comprobación con `env` en el contenedor; la verificación final se hizo con `docker compose --profile '*' config`, que muestra `DATABASE_URL_TEST` solo en el servicio `test` (ver sección de informes, TEST).
+9. **`t5.mk` del scratchpad** (2026-10-20): el humano lo calificó de uso aceptable de Write, sin incidencia: "Un Makefile auxiliar en el scratchpad es exactamente para lo que hemos abierto Write fuera del repo; no rodea ningún bloqueo".
+10. **Exportación del esquema** (2026-10-20): hueco de diseño detectado en la revisión y corregido dentro de la tarea. `index.ts` solo exporta tipos del esquema (`export type { … }`) y repositorios; las tablas Drizzle ya no salen como valor. Se añade `packages/persistence/src/index.test.ts` y `restoreMocks: true` en `vitest.config.ts`.
+11. **Códigos de error** (2026-10-20): `RowNotFoundError` (`ROW_NOT_FOUND`) e `InvalidEventPayloadError` (`EVENT_PAYLOAD_INVALID`) se deciden como códigos del proyecto (no son OD). Se implementan en TASK-014 (`rows.ts`) y TASK-024 (`events.ts`); sus DoD ya lo recogen.
+12. **NITs sin acción** (2026-10-20): canario en mayúsculas en el caso de 41 caracteres (el canario actual tiene minúsculas y se rechaza por la regex); test del `ROLLBACK` del tester no incorporado al repo; `release(true)` en lugar de `release(failure)` en `migrate.ts`.
 
 ## Bloqueos del hook citados por los agentes
 
@@ -1183,14 +1183,14 @@ Dudas: ninguna
 
 ## Verificación de citas tras el cierre (docs-keeper)
 
-- `docs/TASKS.md:5` — "| Última actualización | 2026-10-21 (cierre TASK-005) |"
+- `docs/TASKS.md:5` — "| Última actualización | 2026-10-21 (cierre TASK-005) |" (cita literal, fecha previa a la corrección)
 - `docs/TASKS.md:7` — "| Tareas READY | TASK-007, TASK-008, TASK-010, TASK-012 |"
 - `docs/TASKS.md:108` — "- **Estado**: DONE · **Owner**: persistence-dev · **Depende de**: TASK-003, TASK-004 · **security REQUIRED**"
 - `docs/TASKS.md:137` — "- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-005, OD-004" (TASK-006 sigue BLOCKED)
 - `docs/TASKS.md:148` — "- **Estado**: READY · **Owner**: web-dev · **Depende de**: TASK-005 · **security REQUIRED**" (TASK-007)
 - `docs/TASKS.md:160` — "- **Estado**: READY · **Owner**: engine-dev · **Depende de**: TASK-005" (TASK-008)
-- `docs/TASKS.md:432` — "| 2026-10-21 | TASK-005 → DONE (tester PASS, re-test 22/22; …). Informe en docs/reports/TASK-005.md. Desbloqueadas: TASK-007 y TASK-008 (READY). TASK-006 sigue BLOCKED (OD-004 abierta). |"
-- `docs/TECHNICAL_DEBT.md:5` — "| Última actualización | 2026-10-21 (cierre TASK-005: TD-019…TD-024 registradas; TD-011, TD-017 y TD-019 actualizadas; TD-008 PAID por TASK-003) |"
+- `docs/TASKS.md:432` — "| 2026-10-21 | TASK-005 → DONE (tester PASS, re-test 22/22; …). Informe en docs/reports/TASK-005.md. Desbloqueadas: TASK-007 y TASK-008 (READY). TASK-006 sigue BLOCKED (OD-004 abierta). |" (cita literal, fecha previa a la corrección)
+- `docs/TECHNICAL_DEBT.md:5` — "| Última actualización | 2026-10-21 (cierre TASK-005: TD-019…TD-024 registradas; TD-011, TD-017 y TD-019 actualizadas; TD-008 PAID por TASK-003) |" (cita literal, fecha previa a la corrección)
 
 
 

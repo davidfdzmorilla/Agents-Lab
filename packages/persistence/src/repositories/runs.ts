@@ -3,6 +3,7 @@ import {
   canTransition,
   isTerminalRunStatus,
   type Budget,
+  type InvocationError,
   type RunRequest,
   type RunStatus,
 } from "@agentlab/core";
@@ -18,6 +19,16 @@ export interface CreateRunInput {
   readonly budget: Budget;
 }
 
+export interface FailOrphanedInput {
+  /** The caller's own worker_id; never marked, whatever its heartbeat. */
+  readonly currentWorkerId: string;
+  /** Heartbeat older than this, or null, means orphaned (WORKER_STALE_MS). */
+  readonly staleMs: number;
+  readonly error: InvocationError;
+  /** worker_id prefix of this host ("<hostname>/"). When given, earlier runs of this host are orphaned regardless of heartbeat (startup sweep only). */
+  readonly hostPrefix?: string;
+}
+
 export interface RunsRepository {
   create(input: CreateRunInput): Promise<Run>;
   get(id: string): Promise<Run | null>;
@@ -26,6 +37,8 @@ export interface RunsRepository {
   transition(id: string, to: RunStatus): Promise<Run | null>;
   /** False when the run is no longer running under this worker. */
   heartbeat(id: string, workerId: string): Promise<boolean>;
+  /** Marks orphaned running runs failed in one statement; returns their ids. */
+  failOrphaned(input: FailOrphanedInput): Promise<string[]>;
 }
 
 export function createRunsRepository(db: Database): RunsRepository {
@@ -97,6 +110,30 @@ export function createRunsRepository(db: Database): RunsRepository {
         )
         .returning({ id: runs.id });
       return updated.length > 0;
+    },
+
+    async failOrphaned(input) {
+      const hostMatch =
+        input.hostPrefix === undefined
+          ? sql``
+          : sql` or starts_with(${runs.workerId}, ${input.hostPrefix})`;
+      const updated = await db
+        .update(runs)
+        .set({
+          status: "failed",
+          error: input.error,
+          finishedAt: sql`now()`,
+          updatedAt: sql`now()`,
+        })
+        .where(
+          and(
+            eq(runs.status, "running"),
+            sql`${runs.workerId} is distinct from ${input.currentWorkerId}`,
+            sql`(${runs.workerHeartbeatAt} is null or ${runs.workerHeartbeatAt} < now() - ${input.staleMs} * interval '1 millisecond'${hostMatch})`,
+          ),
+        )
+        .returning({ id: runs.id });
+      return updated.map((row) => row.id);
     },
   };
 }

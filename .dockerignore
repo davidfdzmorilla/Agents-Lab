@@ -1,13 +1,29 @@
-.git
+# Inclusion list (ADR-011, TD-015): nothing enters the build context unless re-included below.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
+!apps/
+!packages/
+
+# Same patterns as HOST_TAR in the Makefile, at any level, plus keys (later rules win).
 **/node_modules
-.pnpm-store
-.claude
-docs
+**/.git
+**/.turbo
+**/.pnpm-store
 **/.env
 **/.env.*
-**/.turbo
+**/.envrc
+**/*.env
+**/.env-*
+**/.env_*
+**/settings.local.json
+**/agent-memory-local
+**/*.pem
+**/*.key
 **/.next
 **/dist
 **/coverage
-*.log
-.DS_Store
+**/*.log
+**/.DS_Store

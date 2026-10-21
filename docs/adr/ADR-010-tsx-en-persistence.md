@@ -58,4 +58,5 @@ Se ejecutan en dos sitios, y ninguno de los dos tiene la toolchain del host:
 - `pnpm --filter @agentlab/persistence list --dev` muestra `tsx 4.23.15`; `list --prod` no lo muestra.
 - `pnpm why tsx` muestra una sola versión.
 - `docker compose up --build` ejecuta `migrate` (`pnpm db:migrate`) y sale con 0.
+  - Nota (2026-10-21, TASK-008): desde ADR-011, `migrate` ya no ejecuta `pnpm db:migrate` sino `tsx src/cli/migrate.ts` (CMD `["tsx", "src/cli/migrate.ts"]` del stage `migrate` de `docker/worker.Dockerfile`), que es el mismo punto de entrada. La decisión de este ADR no cambia.
 - Dentro del contenedor de `make test`, `pnpm db:reset` recrea `agentlab_test`.
