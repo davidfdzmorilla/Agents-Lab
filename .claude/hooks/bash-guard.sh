@@ -154,9 +154,24 @@ if printf '%s' "$flat" | grep -Eq 'docker[[:space:]]+(compose[[:space:]]+)?exec[
 fi
 # Impresión de secretos: `env`/`printenv` sin filtrar, o la EXPANSIÓN de una variable con nombre
 # sensible ($X, ${X}, ${!X}). Mencionar el nombre en un grep o leer un fichero del scratchpad no lo es.
-if printf '%s' "$flat" | grep -Eq '(^|[;&| ])(printenv|env)([[:space:]]*$|[[:space:]]*\|)'; then
-  block "no se vuelca el entorno completo"
-fi
+# `env`/`printenv` como COMANDO (primer token de un segmento) sin argumentos: vuelca todo el entorno.
+# Como argumento de otro comando (grep -i env, ls env/) no significa nada.
+env_dump=0
+segs3="$flat"; segs3="${segs3//&&/$'\n'}"; segs3="${segs3//||/$'\n'}"; segs3="${segs3//;/$'\n'}"; segs3="${segs3//|/$'\n'}"
+while IFS= read -r seg; do
+  seg="${seg#"${seg%%[![:space:]]*}"}"
+  case "$seg" in
+    env|printenv|env[[:space:]]*|printenv[[:space:]]*)
+      # con un nombre concreto de variable no sensible se permite (printenv HOME)
+      args="$(printf '%s' "$seg" | sed -E 's/^(printenv|env)[[:space:]]*//')"
+      # `env -i X=y cmd` / `env X=y cmd` ejecutan un comando con entorno dado: permitido.
+      if printf '%s' "$args" | grep -Eq '(^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+[^[:space:]-]' && ! printf '%s' "$args" | grep -Eq '(^|[[:space:]])(env|printenv)([[:space:]]|$)'; then :
+      elif [ -z "$args" ] || printf '%s' "$args" | grep -Eq '^-[^i]|^-i[[:space:]]*$|(^|[[:space:]])(env|printenv)([[:space:]]|$)' || printf '%s' "$args" | grep -Eq 'API_KEY|SECRET|TOKEN|PASSWORD|PASSWD'; then env_dump=1; fi ;;
+  esac
+done <<EOF3
+$segs3
+EOF3
+[ "$env_dump" = 1 ] && block "no se vuelca el entorno completo ni variables sensibles"
 if printf '%s' "$flat" | grep -Eq '\$\{?!?[A-Za-z0-9_]*(API_KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Za-z0-9_]*\}?' ; then
   block "no se expanden variables de entorno con secretos"
 fi
