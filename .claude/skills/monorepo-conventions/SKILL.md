@@ -10,8 +10,9 @@ Fuente: `docs/ARCHITECTURE.md §2, §10` y ADR-001. Esto es un resumen operativo
 ## Paquetes y dependencias
 - Nombres: `@agentlab/core`, `@agentlab/persistence`, `@agentlab/policies`, `@agentlab/providers`, `@agentlab/orchestrator`, `@agentlab/agents`, `@agentlab/observability`, `@agentlab/tools`, `@agentlab/evaluations`; apps: `web`, `worker`.
 - Dirección: `core ← persistence ← policies ← providers ← orchestrator ← agents ← {worker, web}`. `observability` solo depende de `core`; `tools` de `core` + `policies`; `evaluations` de `core` + `persistence`. Un paquete **nunca** importa de uno "más alto".
-- Exports solo desde `src/index.ts`. Importar `@agentlab/x/src/…` está prohibido (ESLint lo bloquea). Sub-exports permitidos: `@agentlab/providers/testing`, `@agentlab/persistence/testing`.
+- Cada paquete exporta desde `src/index.ts` y, opcionalmente, sub-exports declarados en el campo `exports` de su `package.json` y cubiertos por el test de exports del paquete; nunca rutas internas (`@agentlab/x/src/…` prohibido, ESLint lo bloquea). Sub-exports permitidos hoy: `@agentlab/providers/testing`, `@agentlab/persistence/testing`, `@agentlab/persistence/migrate` (OD-040, TASK-007: `runMigrations` fuera del índice).
 - No crees un paquete que ROADMAP no asigne a tu hito. No crees paquetes vacíos.
+- Dependencias: versión publicada hace al menos dos semanas; única excepción, aviso de seguridad verificado por security con cita (GHSA/CVE, URL, fecha), registrada en el ADR o el plan de la tarea (ARCHITECTURE §9).
 
 ## Plantilla de paquete
 ```
@@ -32,6 +33,7 @@ packages/<name>/
 - Nada de singletons ni estado de módulo mutable. Dependencias por inyección en funciones de construcción (`buildX(deps)`).
 - Comentarios solo cuando el porqué no es evidente. Sin comentarios que narren el qué.
 - Un commit por tarea; el mensaje lo prepara `committer`.
+- Los ficheros del repositorio se editan con Edit/Write. Un script en línea (python3 -c, node -e, perl -i) que escriba en el repositorio cuenta como rodeo del hook aunque no haya habido bloqueo; sed -i y tee sobre rutas del scope sí están permitidos porque el hook los analiza.
 
 ## Comandos
 ```

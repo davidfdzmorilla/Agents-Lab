@@ -13,7 +13,7 @@ Tres procesos en Docker Compose + dos opcionales + dos de un solo uso (`migrate`
 
 | Servicio | Imagen / base | Puerto expuesto | Responsabilidad |
 |---|---|---|---|
-| `web` | Node 22 + Next.js | `3000` (host) | UI + API HTTP/SSE. Crea runs, lee estado, emite eventos. **Nunca** ejecuta agentes. |
+| `web` | Node 22 (stage `runtime` de `docker/web.Dockerfile`, Next.js `output: "standalone"`, ADR-012) | `127.0.0.1:3000` (host) | UI + API HTTP/SSE. Crea runs, lee estado, emite eventos. **Nunca** ejecuta agentes. CMD `["node", "apps/web/server.js"]` bajo `init: true`, uid 1000, sin gestores de paquetes. Sin perfil en compose. Redes `backend` y `egress`: `egress` solo sirve para publicar el puerto (un contenedor conectado únicamente a redes `internal: true` no lo publica); `web` no hace llamadas salientes y su salida a internet sin restricciones es la de TD-018 (TASK-020). `tmpfs` en `/app/apps/web/.next/cache` (uid 1000, `0700`, 64m; ADR-012). Bajo `SIGTERM` sale con 143 por diseño de Next (ADR-012): es el único servicio que no termina con 0 y no es un fallo. |
 | `worker` | Node 22 (stage `runtime` de `docker/worker.Dockerfile`, `pnpm deploy`, ADR-011) | ninguno | Reclama runs `queued`, ejecuta el grafo, persiste eventos y checkpoints. CMD `["node", "--import", "tsx", "src/index.ts"]` bajo `init: true` (OD-032). Redes `backend` y `egress`. |
 | `db` | PostgreSQL 16 | ninguno (solo red interna; `5432` en host opcional vía `compose.override`) | Fuente de verdad. |
 | `ollama` (opcional, perfil `local`) | ollama/ollama | ninguno | Inferencia local. |
@@ -21,10 +21,11 @@ Tres procesos en Docker Compose + dos opcionales + dos de un solo uso (`migrate`
 | `migrate` (one-shot, TASK-005) | Node 22 (stage `migrate` de `docker/worker.Dockerfile`, `pnpm deploy` de `@agentlab/persistence`, ADR-011, OD-026) | ninguno | CMD `["tsx", "src/cli/migrate.ts"]` (el mismo punto de entrada que `pnpm db:migrate`, ADR-010): migraciones de Drizzle y `setup()` del checkpointer, serializadas con `pg_advisory_xact_lock`; sale. Solo red `backend` y solo recibe `DATABASE_URL`. `web` y `worker` arrancan cuando termina con éxito. La imagen conserva las `devDependencies` de `persistence` (`drizzle-kit`, `tsx`; ADR-010) pero no las de la raíz (condición 2 de ADR-011); **no se reutiliza para `worker` ni `web`**: ningún otro servicio la usa como `target` y ningún stage parte de ella (`FROM`/`COPY --from`). |
 | `test` (one-shot, perfil `test`, TASK-005) | Node 22 (stage `test` de `docker/worker.Dockerfile`: `base` con pnpm, uid 1000 `node`, sin salida de `deploy`) | ninguno | Fase 2 de `make test`/`make validate` (OD-019): recibe el árbol del host por `tar`, instala sin red (`--offline`, store `pnpm-store` montado `:ro`, sin volumen de `node_modules`) y corre los tests contra `agentlab_test`. Solo red `test-db` (`internal: true`, únicamente `db` y `test`). Único servicio que recibe `DATABASE_URL_TEST`. `make test` deja `db` en marcha; se para con `make down`. |
 
-Imágenes de `docker/worker.Dockerfile` (TASK-008, ADR-011; verificado el 2026-10-21):
+Imágenes de `docker/worker.Dockerfile` (TASK-008, ADR-011) y `docker/web.Dockerfile` (TASK-007, ADR-012); verificado el 2026-10-21:
+- `web` no usa `pnpm deploy` (ADR-012): el stage `build` instala con `pnpm install --frozen-lockfile --offline --ignore-scripts --filter web...` sobre el store de `pnpm fetch --ignore-scripts` y compila con `RUN --network=none pnpm --filter web build`; `runtime` parte de su propio `slim` (sin `npm`, `npx`, `corepack` ni `yarn`) y solo copia `.next/standalone` y `.next/static`, sin fuentes `.ts`. Ningún stage de un Dockerfile parte de los del otro.
 - `runtime` y `migrate` se construyen con `pnpm deploy --ignore-scripts`, precedido de `pnpm install --frozen-lockfile --lockfile-only --ignore-scripts --offline` (condición 1 de ADR-011). Parten del stage `slim`, que borra `npm`, `npx`, `corepack` y `yarn` (no se pueden ejecutar; los bytes siguen en la capa base, ADR-011), y corren como `USER node` (uid 1000). No contienen el monorepo, solo el paquete desplegado y su cierre de dependencias.
-- `migrate`, `worker` y `test` llevan `cap_drop: [ALL]` y `security_opt: ["no-new-privileges:true"]` en `compose.yaml`.
-- `.dockerignore` es una lista de inclusión: `*` y se reincluyen solo `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc`, `apps/` y `packages/`, con las exclusiones de `HOST_TAR` del Makefile a cualquier nivel y además `*.pem`, `*.key`, `.next`, `dist`, `coverage`, `*.log` y `.DS_Store`.
+- `migrate`, `worker`, `web` y `test` llevan `cap_drop: [ALL]` y `security_opt: ["no-new-privileges:true"]` en `compose.yaml`.
+- `.dockerignore` es una lista de inclusión: `*` y se reincluyen solo `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc`, `tsconfig.base.json` (TASK-007, ADR-012: lo extiende `apps/web/tsconfig.json` y `next build` comprueba tipos), `apps/` y `packages/`, con las exclusiones de `HOST_TAR` del Makefile a cualquier nivel y además `*.pem`, `*.key`, `.next`, `dist`, `coverage`, `*.log` y `.DS_Store`.
 - Redes: `backend` (`internal: true`: `db`, `migrate`, `web`, `worker`, `ollama`), `test-db` (`internal: true`: `db` y `test`) y `egress` (`web`, `worker`, `ollama`).
 - TD-021 sigue abierta (MEDIUM) en la parte del rol: `test` se conecta a PostgreSQL como superusuario hasta TASK-037. La parte de la red queda resuelta con `test-db`.
 
@@ -56,7 +57,7 @@ core ← persistence ← policies ← providers ← orchestrator ← agents ← 
 | `tools` | `ToolRegistry`, herramientas (`web.search`, `source.read`, `artifact.*`), allowlist HTTP. | Decisiones de autorización (las toma `policies`). |
 | `evaluations` | Datasets de tareas, evaluadores, comparación de runs. | — |
 
-Cada paquete exporta **solo** desde `src/index.ts`. Importar rutas internas de otro paquete está prohibido (lint rule `no-restricted-imports`).
+Cada paquete exporta desde `src/index.ts` y, opcionalmente, sub-exports declarados en `package.json` `exports`; nunca rutas internas (decisión humana del 2026-10-21, TASK-007). Importar rutas internas de otro paquete está prohibido (lint rule `no-restricted-imports`). Sub-exports actuales: `@agentlab/persistence/testing` y `@agentlab/persistence/migrate` (`runMigrations`, fuera del índice: OD-040 a); previsto: `@agentlab/providers/testing`. Cada sub-export está cubierto por el test de exports de su paquete.
 
 ## 3. Contratos centrales
 
@@ -222,7 +223,10 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 ## 7. apps/web
 
 - Next.js App Router. Rutas: `/` (proyectos), `/projects/:id` (equipos, agentes), `/runs/:id` (timeline de eventos, pasos, presupuesto, resultado), `/runs/:id/compare/:otherId` (M3).
-- Route Handlers en `app/api/**/route.ts`; cada handler valida entrada con Zod y devuelve errores `{ code, message }` con estado HTTP coherente (400 validación, 404, 409 transición inválida, 500).
+- App Router en `apps/web/src/app` (OD-041 a; `rootDir: "src"` se mantiene). Route Handlers en `apps/web/src/app/api/**/route.ts`; `route.ts` solo compone y la lógica vive en `apps/web/src/server/**`.
+- Las rutas con lógica (desde TASK-014) validan entrada con Zod y devuelven errores `{ code, message }` con estado HTTP coherente (400 validación, 404, 409 transición inválida, 500). En M0 no hay ninguna: con un entorno inválido, `/api/health` responde el 500 por defecto de Next, que registra el error sin valores (OD-044 a: sin logger en `web` en M0).
+- `GET /api/health` (TASK-007): `export const dynamic = "force-dynamic"`; 200 `{ ok: true, db: "up", version }` o 503 `{ ok: false, db: "down" }`, exactamente esas claves, ambas con `cache-control: no-store`. `version` es el campo `version` de `apps/web/package.json`, embebido en el build (OD-043 a). Plazo único de 2 s (`HEALTH_TIMEOUT_MS = 2000`, constante, no variable de entorno) que cubre conexión y `select 1` mediante `pingDatabase` de `persistence`, sobre un pool de una conexión por petición (`max: 1`, `connectionTimeoutMillis` = plazo); el pool compartido del proceso lo decide TASK-014. Sin autenticación (OD-003, TD-005).
+- Protección de la API sin autenticación (`Host` permitido, `Origin` y `Content-Type` en peticiones no-GET, cabeceras `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors`): requisito de security en TASK-007, se implementa en TASK-014. M0 solo quita `x-powered-by` (`poweredByHeader: false`).
 - El handler SSE usa `ReadableStream`; envía `: ping` cada 15 s; cierra cuando el run es terminal.
 - Sin estado global en el proceso web: todo se lee de PostgreSQL.
 - Server Components para lectura; Client Components solo para el timeline en vivo y formularios.
@@ -248,7 +252,9 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 | TypeScript | 5.x strict (`5.9.3`, con `@types/node` 22.x) | `tsconfig.base.json` |
 | PostgreSQL | 16 | `compose.yaml` |
 
-Dependencias fijadas por OD-001 (TASK-002, ADR-002) y por TASK-004 (OD-009), verificadas con `npm view` el 2026-10-20. Versión exacta, sin `^`, idéntica en todos los workspaces que la usen.
+Dependencias fijadas por OD-001 (TASK-002, ADR-002) y por TASK-004 (OD-009), verificadas con `npm view` el 2026-10-20, y por TASK-007 (OD-042), verificadas el 2026-10-21. Versión exacta, sin `^`, idéntica en todos los workspaces que la usen.
+
+Antigüedad mínima: cada dependencia nueva o actualizada usa una versión publicada hace al menos dos semanas. Única excepción: un aviso de seguridad verificado por `security`, con cita del aviso (identificador GHSA/CVE, URL y fecha); la excepción se registra en el ADR o en el plan de la tarea con el identificador del aviso. Ejemplo vigente: `next` 16.4.2 (OD-042, ADR-012). Decisión humana del 2026-10-21 (TASK-007), sin OD.
 
 | Paquete | Versión | Workspace | Razón |
 |---|---|---|---|
@@ -260,14 +266,17 @@ Dependencias fijadas por OD-001 (TASK-002, ADR-002) y por TASK-004 (OD-009), ver
 | `drizzle-kit` | `0.31.11` | `persistence` (dev) | Pareja estable de drizzle-orm 0.45.x |
 | `pg` | `8.23.1` | `persistence` | Driver PostgreSQL único: Drizzle, `PostgresSaver` (solo admite `pg`, peer `^8.12.0`) y `LISTEN/NOTIFY` |
 | `@types/pg` | `8.23.1` | `persistence` (dev) | Tipos de `pg` |
-| `next` | `16.4.2` | `web` | Última estable; Node ≥20.9, TS ≥5.1; Route Handlers con `ReadableStream` para SSE |
+| `next` | `16.4.2` | `web` | Última estable; Node ≥20.9, TS ≥5.1; Route Handlers con `ReadableStream` para SSE. Publicada el 2026-10-15: **excepción a la regla de las dos semanas** (OD-042, decisión humana tras la verificación de security; avisos citados en ADR-012): toda 16.x ≤ 16.4.0 es vulnerable (parche 16.4.1, que 16.4.2 contiene). Instalada en TASK-007. Bundler webpack (`next dev --webpack`, `next build --webpack`) con `extensionAlias` `.js → .ts/.tsx/.js` (OD-039 a, ADR-012); volver a Turbopack se revisa en TASK-040 |
+| `react` / `react-dom` | `19.3.0` | `web` | Satisfacen el peer de `next` (`^18.2.0 \|\| ^19.0.0`); `react-dom` 19.3.0 pide `react ^19.3.0`. Sin excepción: ningún aviso los afecta (OD-042); TASK-007 |
+| `tailwindcss` / `@tailwindcss/postcss` | `4.3.3` | `web` (dev) | `@tailwindcss/postcss` trae `postcss`, que no se declara; TASK-007 |
+| `@types/react` / `@types/react-dom` | `19.3.0` | `web` (dev) | Tipos de `react`/`react-dom` 19.3; sin excepción (OD-042); TASK-007 |
 | `tsx` | `4.23.15` | `apps/worker` (`dependencies`); `packages/persistence` (dev, scripts `db:*`) | ADR-009 (OD-007): ejecuta el worker sin build en dev y en Docker. ADR-010: ejecuta `db:migrate`/`db:reset` de `persistence`; de runtime solo en `apps/worker` |
 | `zod` | `4.6.7` | `packages/core` (`dependencies`) | Compatible con `^3.25.32 \|\| ^4.2.0` (peer de `@langchain/langgraph` 1.5.1) y `^3.25.76 \|\| ^4` (dependencia de `@langchain/core` 1.2.18); `z.toJSONSchema` nativo; TASK-004 |
 | `vitest` | `5.0.5` | raíz (dev) | Runner de tests (OD-009); engines `^22.12.0 \|\| ^24 \|\| >=26`; TASK-004 |
 | `@vitest/coverage-v8` | `5.0.5` | raíz (dev) | Cobertura v8; peer `vitest 5.0.5` exacto; TASK-004 |
 | `vite` | `8.3.4` | raíz (dev) | Peer obligatorio de `vitest` 5, declarado explícitamente; TASK-004 |
 
-Compatibilidad: peers verificados con `npm view` y release coordinado langgraphjs #2961 (2026-10-12); fuentes en ADR-002. `@langchain/langgraph-checkpoint` y `@langchain/core` resuelven a una sola versión exacta (`1.2.0` y `1.2.18`) en `persistence` y `orchestrator`: TASK-013 elige el mecanismo (declaración exacta en ambos `package.json` o `pnpm.overrides` en la raíz) y TASK-023 lo comprueba con `pnpm why`. `zod` queda fijado en TASK-004; cuando entre `@langchain/core` (TASK-013), `pnpm why zod` debe mostrar una sola instancia (`4.6.7`). `react`/`react-dom`/`tailwindcss` se fijan en TASK-007 (no decididas aún). Subir cualquiera de estas versiones es una tarea propia que vuelve a verificar la compatibilidad.
+Compatibilidad: peers verificados con `npm view` y release coordinado langgraphjs #2961 (2026-10-12); fuentes en ADR-002. `@langchain/langgraph-checkpoint` y `@langchain/core` resuelven a una sola versión exacta (`1.2.0` y `1.2.18`) en `persistence` y `orchestrator`: TASK-013 elige el mecanismo (declaración exacta en ambos `package.json` o `pnpm.overrides` en la raíz) y TASK-023 lo comprueba con `pnpm why`. `zod` queda fijado en TASK-004; cuando entre `@langchain/core` (TASK-013), `pnpm why zod` debe mostrar una sola instancia (`4.6.7`). `react`/`react-dom`/`tailwindcss` quedan fijadas en TASK-007 (OD-042, verificadas con `npm view` el 2026-10-21). Subir cualquiera de estas versiones es una tarea propia que vuelve a verificar la compatibilidad.
 
 ## 10. Convenciones de código
 

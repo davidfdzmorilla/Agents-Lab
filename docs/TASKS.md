@@ -2,9 +2,9 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-21 (cierre TASK-008) |
+| Última actualización | 2026-10-21 (cierre TASK-007) |
 | Hito actual | M0 |
-| Tareas READY | TASK-006, TASK-007, TASK-010, TASK-012 (orden decidido: TASK-007 → TASK-006 → TASK-009) |
+| Tareas READY | TASK-006, TASK-010, TASK-012 (orden decidido: TASK-006 → TASK-009) |
 
 ## Cómo se lee este documento
 
@@ -145,8 +145,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Lint de los ficheros de configuración de la raíz (`eslint.config.js`, etc.) incluido en el pipeline (TD-007).
 
 ### TASK-007 · apps/web: esqueleto Next.js + `GET /api/health`
-- **Estado**: READY · **Owner**: web-dev · **Depende de**: TASK-005 · **security REQUIRED**
-- **Scope**: `apps/web/**`, `docker/web.Dockerfile`, `compose.yaml`, `Makefile` (estos tres fuera del rol de web-dev: se reparten con devops al planificar; `compose.yaml` para quitar el perfil `web`, OD-G)
+- **Estado**: DONE · **Owner**: web-dev (reparto por pasos: persistence-dev, devops, web-dev; plan en `docs/reports/TASK-007-plan.md`, ADR-012) · **Depende de**: TASK-005 · **security REQUIRED**
+- **Scope**: `apps/web/**` (web-dev; `apps/web/package.json` devops), `docker/web.Dockerfile`, `compose.yaml`, `Makefile`, `.dockerignore`, `.gitignore`, `pnpm-lock.yaml` (devops), `packages/persistence/src/health.ts`, `packages/persistence/src/health.integration.test.ts`, `packages/persistence/src/pool.ts`, `packages/persistence/src/index.ts`, `packages/persistence/src/index.test.ts`, `packages/persistence/package.json` (sub-export `./migrate`, OD-040), `packages/persistence/src/migrate.integration.test.ts` (persistence-dev) (OD-045), `docs/ARCHITECTURE.md` §1/§7/§9, `docs/TECHNICAL_SPEC.md` §8/§13, `docs/adr/ADR-012-build-e-imagen-de-web.md`, `docs/adr/ADR-000-indice-y-plantilla.md`, `docs/reports/TASK-007-plan.md` (architect), `docs/TECHNICAL_DEBT.md`, `docs/TASKS.md`, `docs/adr/ADR-009-*.md` (docs-keeper / Orchestrator, al cierre)
+- **Dependencias autorizadas**: `next` 16.4.2, `react` 19.3.0, `react-dom` 19.3.0 (dependencies de `apps/web`); `tailwindcss` 4.3.3, `@tailwindcss/postcss` 4.3.3, `@types/react` 19.3.0, `@types/react-dom` 19.3.0 (devDependencies de `apps/web`). Excepción a la regla de las dos semanas solo para `next` 16.4.2 (decisión humana tras la verificación de security, OD-042): toda 16.x ≤ 16.4.0 está en los rangos de GHSA-2464-fhr4-w9xw (CVE-2026-96889), GHSA-673q-mjm6-r5xr y GHSA-p3m5-59mp-jv5r (parche 16.4.1) y su copia de RSC no lleva el arreglo de GHSA-xqc2-xf4c-x3h3 / GHSA-h3gv-c5rc-p453; 16.4.2 contiene esos parches. `react`/`react-dom` 19.3.0 sin excepción (ningún aviso los afecta).
 - **DoD**:
   - `docker/web.Dockerfile` (multi-stage, `pnpm fetch`, no root, `TURBO_TELEMETRY_DISABLED=1`) y `docker compose up --build` sirve `/api/health` en `127.0.0.1:3000`.
   - App Router, Tailwind, layout base, página `/` con texto "AgentLab" y enlace a `/projects`.
@@ -156,6 +157,16 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Elimina el placeholder `apps/web/src/index.ts` (TD-009).
   - `next.config.ts` convive con `rootDir: src`: rootDir se mantiene; decidir include/tsconfig aparte (TD-010).
   - `.dockerignore` (lista de inclusión desde TASK-008, ADR-011) se amplía con lo que necesite la imagen de `web`, sin abrir exclusiones de `HOST_TAR` ni `*.pem`/`*.key`.
+  - Dependencias exactas, sin `^`: `next` 16.4.2, `react` 19.3.0, `react-dom` 19.3.0 (dependencies de `apps/web`); `tailwindcss` 4.3.3, `@tailwindcss/postcss` 4.3.3, `@types/react` 19.3.0, `@types/react-dom` 19.3.0 (devDependencies de `apps/web`); `pnpm install --frozen-lockfile` sin avisos de peers (OD-042: excepción solo para `next` 16.4.2, con los avisos citados en ADR-012 y en el plan).
+  - Build con webpack y `extensionAlias` (`.js → .ts`) para los paquetes del workspace (OD-039 a); App Router en `apps/web/src/app` (OD-041 a).
+  - `runMigrations` sale del índice público de `persistence` y se importa desde el sub-export explícito `@agentlab/persistence/migrate` (como `/testing`); el test de exports cubre el índice (sin `runMigrations`, con `pingDatabase`) y el sub-export `./migrate` (OD-040 a).
+  - `pingDatabase(pool, { timeoutMs })` en persistence: plazo único que cubre conexión y consulta, cliente destruido al vencer o fallar, nunca lanza; test de integración arriba, puerto cerrado, servidor que no contesta (reloj falso) y consulta colgada tras conectar.
+  - `version` de `/api/health` sale del `package.json` de `apps/web` (OD-043 a). Sin logger en `web` en M0 (OD-044 a). `/projects` responde 404 en M0 (OD-046 a).
+  - La imagen de web parte de `output: "standalone"`: sin pnpm, corepack, npm, npx ni yarn, sin fuentes `.ts`, uid 1000; install con `--frozen-lockfile --offline --ignore-scripts` y build con `RUN --network=none`; un lockfile alterado hace fallar el build (ADR-012).
+  - Prueba de canarios (`*.pem`, `*.key`, `.env*`, `*.env`, `.envrc` en varios niveles): ninguno en el stage `build` ni en la imagen de web.
+  - `web` en compose: sin perfil, `cap_drop [ALL]`, `no-new-privileges`, `init: true`, redes `backend` + `egress`, `127.0.0.1:3000`; con `db` en pausa, `/api/health` responde 503 entre 2,0 s y 2,5 s (el plazo es 2 s; se verifica que no espera al timeout TCP del sistema operativo).
+  - `web` es el único servicio que no termina con código 0 bajo `SIGTERM`: sale con 143 por diseño de Next (ADR-012); se documenta y no se trata como fallo.
+  - `HOST_TAR` excluye `.next`; `make test` y `make validate` probados en macOS y Linux.
 
 ### TASK-008 · apps/worker: bucle de reclamación vacío con heartbeat y apagado limpio
 - **Estado**: DONE · **Owner**: engine-dev (reparto por pasos: core-dev, persistence-dev, devops, engine-dev; plan en `docs/reports/TASK-008-plan.md`) · **Depende de**: TASK-005
@@ -239,7 +250,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-014 · API: `POST /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/result`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-007, TASK-011
-- **Scope**: `apps/web/app/api/runs/**`, `apps/web/lib/api/**`, `packages/core/src/errors.ts`, `packages/core/src/errors.test.ts`, `packages/core/src/index.test.ts`, `packages/persistence/src/repositories/rows.ts`, `packages/persistence/src/repositories/events.ts` (+ sus tests), `packages/persistence/src/repositories/runs.integration.test.ts` (TD-027) (core y persistence fuera del rol de web-dev: se reparten con core-dev y persistence-dev al planificar)
+- **Scope**: `apps/web/src/app/api/runs/**`, `apps/web/src/lib/api/**`, `packages/core/src/errors.ts`, `packages/core/src/errors.test.ts`, `packages/core/src/index.test.ts`, `packages/persistence/src/repositories/rows.ts`, `packages/persistence/src/repositories/events.ts` (+ sus tests), `packages/persistence/src/repositories/runs.integration.test.ts` (TD-027) (core y persistence fuera del rol de web-dev: se reparten con core-dev y persistence-dev al planificar)
 - **DoD**:
   - `RowNotFoundError` (`ROW_NOT_FOUND`) e `InvalidEventPayloadError` (`EVENT_PAYLOAD_INVALID`), subclases de `AgentLabError` en `core`; `persistence` los lanza en lugar de `TypeError` (`rows.ts`) y `ZodError` (`events.ts`) (decisión humana 2026-10-20, TASK-005).
   - Validación Zod del cuerpo (`RunRequestSchema`); 400 con detalle de campos.
@@ -247,6 +258,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `GET /:id` incluye `status`, `budget`, `budgetUsed`, `steps[]` (derivados de `agent_invocations`), `finishedReason`.
   - `GET /:id/result` → 404 si no existe, 409 si no es terminal, 200 con `result` y `status`.
   - Tests de handler contra PostgreSQL.
+  - Protección de la API sin autenticación (requisito MEDIUM de security en TASK-007; OD-003/TD-005): solo se aceptan peticiones con `Host` `localhost`/`127.0.0.1` (configurable); toda petición no-GET exige `Origin` válido y `Content-Type: application/json`; cabeceras `X-Content-Type-Options: nosniff`, `Referrer-Policy` y `frame-ancestors` (CSP) en todas las respuestas. Tests de cada rechazo; security lo verifica en esta tarea.
+  - Pool compartido del proceso `web` (deuda LOW de TASK-007: `/api/health` abre un pool por petición sin límite de concurrencia; TD-038).
   - Deuda TD-027 (test de concurrencia de `failOrphaned` en `packages/persistence/src/repositories/runs.integration.test.ts` con espera real de 300 ms; esta es la siguiente tarea que toca persistence, decisión humana de TASK-008; el scope incluye ese fichero): sustituir la espera real por `vi.useFakeTimers` o sondear `pg_stat_activity` (`wait_event_type='Lock'`), sin `sleep` (testing-conventions regla 4).
 
 ### TASK-015 · Worker ejecuta el grafo `research`
@@ -263,7 +276,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-016 · UI: pantalla `/runs/:id` y formulario de nueva ejecución
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-014, TASK-015
-- **Scope**: `apps/web/app/(app)/**`, `apps/web/components/**`
+- **Scope**: `apps/web/src/app/(app)/**`, `apps/web/src/components/**`
 - **DoD**:
   - `/projects/:id/runs/new`: textarea de petición, selector de equipo, botón "Ejecutar" → redirige a `/runs/:id`.
   - `/runs/:id`: timeline de pasos (agente, estado, duración, tokens o "no informado"), barra de presupuesto, estado del run y motivo de finalización, resultado renderizado (Markdown) o parcial con aviso.
@@ -290,8 +303,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 - **DoD**: `ProviderCapabilityError` antes de red; backoff exponencial + jitter solo para `retryable`; respeta `retryAfterMs`; máximo de reintentos configurable y descontado del presupuesto de llamadas.
 
 ### TASK-020 · `GET /api/providers` y selección por agente desde `provider_configs`
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-019 · **Scope**: `apps/web/app/api/providers/**`, `apps/web/app/(app)/projects/**`
-- **DoD**: lista proveedores con capacidades y modelos; test que verifica que ninguna respuesta contiene el valor de ninguna variable `*_API_KEY`; salida del worker restringida (sin RFC1918 ni metadatos cloud) junto con la allowlist de host (TD-018).
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-019 · **Scope**: `apps/web/src/app/api/providers/**`, `apps/web/src/app/(app)/projects/**`
+- **DoD**: lista proveedores con capacidades y modelos; test que verifica que ninguna respuesta contiene el valor de ninguna variable `*_API_KEY`; salida del worker restringida (sin RFC1918 ni metadatos cloud) junto con la allowlist de host (TD-018); salida de `web` restringida igual (TD-018 ampliada a `web`: sale por la red `egress`, necesaria para publicar el puerto).
 
 ### TASK-021 · Perfil `local`: modelo Ollama por defecto (OD-005) y `docs/PROVIDERS.md`
 - **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-019, OD-005 · **Scope**: `compose.yaml`, `docker/ollama/**`, `docs/PROVIDERS.md`
@@ -308,11 +321,11 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 - **DoD**: `thread_id = runId`; la tabla `run_checkpoints` nace aquí con su migración (OD-028); relación en `run_checkpoints`; test de reanudación desde checkpoint intermedio; test de que `setup()` es idempotente (dos ejecuciones seguidas) y `put`/`getTuple` contra PostgreSQL 16 en el esquema `langgraph`; con `SIGTERM`, el run en curso guarda checkpoint antes de que el worker salga (ADR-009).
 
 ### TASK-024 · `LISTEN/NOTIFY` + SSE real con `Last-Event-ID`
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-023 · **Scope**: `packages/persistence/src/notify/**`, `packages/persistence/src/repositories/events.ts` (el NOTIFY va en la transacción de `append`), `apps/web/app/api/runs/[id]/events/**`, `apps/web/components/run-timeline/**`
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-023 · **Scope**: `packages/persistence/src/notify/**`, `packages/persistence/src/repositories/events.ts` (el NOTIFY va en la transacción de `append`), `apps/web/src/app/api/runs/[id]/events/**`, `apps/web/src/components/run-timeline/**`
 - **DoD**: evento persistido antes de notificar; reconexión recupera huecos; ping cada 15 s; cierre en terminal; retira el polling (cierra TD-001); un payload de evento inválido llega como `InvalidEventPayloadError` (`EVENT_PAYLOAD_INVALID`), no como `ZodError` (decisión humana 2026-10-20).
 
 ### TASK-025 · Cancelación cooperativa y `POST /resume`
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-023 · **Scope**: `packages/orchestrator/**`, `apps/web/app/api/runs/[id]/cancel/**`, `apps/web/app/api/runs/[id]/resume/**`
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-023 · **Scope**: `packages/orchestrator/**`, `apps/web/src/app/api/runs/[id]/cancel/**`, `apps/web/src/app/api/runs/[id]/resume/**`
 - **DoD**: `AbortSignal` llega a proveedor y herramientas; 409 en transiciones inválidas; `resume` desde último checkpoint sin repetir pasos.
 
 ### TASK-026 · Reanudación desde checkpoint de runs huérfanos
@@ -325,10 +338,10 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-027 · packages/observability: eventos, spans OTel, métricas, `redactSecrets`
 - **Estado**: BLOCKED · **Owner**: core-dev · **Depende de**: TASK-023 · **Scope**: `packages/observability/**`, `packages/persistence/src/redaction/**`, `compose.yaml` (perfil `observability`)
-- **DoD**: `packages/core/src/env.test.ts` (`loadEnv > reads process.env by default`) aislado del `process.env` real (TD-024); span por run/agente/herramienta; exportador OTLP opcional; `redactSecrets` + test de fuga; prompts persistidos solo tras redacción. Deuda TD-032: manejador global de `unhandledRejection`/`uncaughtException` con serializador de error en `apps/worker/src/index.ts`. Nota de TD-011 (redact): hoy solo raíz y un nivel por nombre exacto; sin profundidad ≥ 2, arrays, claves url/connectionString/password/authorization, valores en msg ni OLLAMA_BASE_URL/OTEL_EXPORTER_OTLP_ENDPOINT; regla: solo campos explícitos, nada de interpolar configuración en msg; barrido por valor en esta tarea.
+- **DoD**: `packages/core/src/env.test.ts` (`loadEnv > reads process.env by default`) aislado del `process.env` real (TD-024); span por run/agente/herramienta; exportador OTLP opcional; `redactSecrets` + test de fuga; prompts persistidos solo tras redacción. Deuda TD-032: manejador global de `unhandledRejection`/`uncaughtException` con serializador de error en `apps/worker/src/index.ts` y también en `apps/web` (en TASK-007, un `unhandledRejection` por petición a `/_next/image` sin tumbar el proceso mostró que Next no tiene manejador global). Nota de TD-011 (redact): hoy solo raíz y un nivel por nombre exacto; sin profundidad ≥ 2, arrays, claves url/connectionString/password/authorization, valores en msg ni OLLAMA_BASE_URL/OTEL_EXPORTER_OTLP_ENDPOINT; regla: solo campos explícitos, nada de interpolar configuración en msg; barrido por valor en esta tarea.
 
 ### TASK-028 · UI: métricas por run y comparación de dos runs
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-027 · **Scope**: `apps/web/app/(app)/runs/**`, `apps/web/components/**`
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-027 · **Scope**: `apps/web/src/app/(app)/runs/**`, `apps/web/src/components/**`
 - **DoD**: `/runs/:id/compare/:otherId` muestra pasos alineados, duración, tokens, resultado de revisión.
 
 ### TASK-029 · Cierre de M3
@@ -346,7 +359,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 - **DoD**: bloqueo de `localhost`, RFC1918, link-local, metadatos cloud; resolución DNS comprobada antes de conectar; tests de SSRF; **security REQUIRED**.
 
 ### TASK-032 · Aprobación humana: `approval.wait` + `awaiting_approval`
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-025, TASK-030 · **Scope**: `packages/orchestrator/**`, `packages/policies/**`, `apps/web/app/(app)/runs/**`
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-025, TASK-030 · **Scope**: `packages/orchestrator/**`, `packages/policies/**`, `apps/web/src/app/(app)/runs/**`
 - **DoD**: herramienta `sensitivity: approval` interrumpe el grafo; UI muestra la solicitud y botones aprobar/rechazar; test de que el modelo no puede autoaprobar; **security REQUIRED**.
 
 ### TASK-033 · Validación de salidas estructuradas con reintento guiado
@@ -354,7 +367,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 - **DoD**: `invalid_output` → una repetición con el error de validación en el prompt; segunda falla → `agent.failed`; descuenta llamadas.
 
 ### TASK-034 · Editor de equipos y agentes en la UI + builder de grafo genérico
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-033 · **Scope**: `apps/web/app/(app)/projects/**`, `apps/web/app/api/agents/**`, `apps/web/app/api/teams/**`, `packages/orchestrator/src/graph/generic.ts`
+- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-033 · **Scope**: `apps/web/src/app/(app)/projects/**`, `apps/web/src/app/api/agents/**`, `apps/web/src/app/api/teams/**`, `packages/orchestrator/src/graph/generic.ts`
 - **DoD**: crear/editar agentes y equipos sin tocar código; `coordination jsonb` validado; ejecutar hasta `completed`.
 
 ### TASK-035 · `examples/research-team` y `examples/analysis-team` + cierre de M4
@@ -369,14 +382,14 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 
 ### TASK-037 · Pruebas de seguridad (inyección, SSRF, fugas, escalada de presupuesto)
 - **Estado**: BLOCKED · **Owner**: security · **Depende de**: TASK-036 · **Scope**: `tests/security/**`, `docs/security/**`
-- **DoD**: suite automatizada de los cuatro vectores; `SECURITY_POLICY.md` completa; usuario de aplicación sin DDL y rol no superusuario dueño de `agentlab_test` para el servicio `test` (TD-013, TD-021; esta tarea no se retrasa ni va después de ningún despliegue fuera de localhost: TD-013 lo exige); `db` sin salida a internet también con el override de desarrollo (TD-016); **security REQUIRED**.
+- **DoD**: suite automatizada de los cuatro vectores; `SECURITY_POLICY.md` completa; usuario de aplicación sin DDL y rol no superusuario dueño de `agentlab_test` para el servicio `test` (TD-013, TD-021; esta tarea no se retrasa ni va después de ningún despliegue fuera de localhost: TD-013 lo exige); `db` sin salida a internet también con el override de desarrollo (TD-016); `web` con `read_only: true` y límites de memoria y procesos (TD-039); **security REQUIRED**.
 
 ### TASK-038 · Licencia (ADR-008), NOTICE y revisión de dependencias
 - **Estado**: BLOCKED · **Owner**: docs-keeper · **Depende de**: TASK-037 · **Scope**: `LICENSE`, `NOTICE`, `docs/adr/ADR-008-*.md`, `docs/THIRD_PARTY.md`
 - **DoD**: `pnpm licenses list` revisado; ADR-008 `Accepted` solo tras aprobación humana.
 
 ### TASK-039 · OD-003 (auth de API) + instalación limpia verificada + cierre de M5
-- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-038, OD-003 · **Scope**: `README.md`, `docs/reports/M5-closure.md`, `apps/web/middleware.ts` (si OD-003 lo exige)
+- **Estado**: BLOCKED · **Owner**: devops · **Depende de**: TASK-038, OD-003 · **Scope**: `README.md`, `docs/reports/M5-closure.md`, `apps/web/src/proxy.ts` (Next 16: `middleware` → `proxy`) (si OD-003 lo exige)
 - **DoD**: instalación en máquina ajena siguiendo solo el README; criterio de salida M5 verificado; humano acepta.
 
 ---
@@ -391,7 +404,10 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Tests y helpers de test fuera de las imágenes `worker` y `migrate` (deuda LOW de TASK-008, TD-025): los paquetes inyectados por `pnpm deploy` no llevan `*.test.ts` ni `src/testing/**` (incluido el `DROP DATABASE` de `packages/persistence/src/testing/reset.ts`), con `files` en los `package.json` o con un `.dockerignore` de stage; evidencia: `find /app \( -name '*.test.ts' -o -path '*/src/testing/*' \)` vacío en las dos imágenes.
   - Limpieza del `package.json` raíz en `migrate-deploy` (deuda LOW de TASK-008, condición 2 de ADR-011, TD-026): con el pnpm al que se suba, comprobar si `pnpm deploy` sigue instalando las devDependencies de la raíz o tiene una opción nativa para evitarlo; si es así, quitar `npm pkg delete devDependencies` del stage y aportar como evidencia `ls /app/node_modules/.bin` de `migrate` = `drizzle-kit tsx`; si no, el ADR lo documenta y la deuda sigue abierta.
   - Deuda TD-031: `/app/tsconfig.json` de la imagen runtime extiende `../../tsconfig.base.json`, ausente; corregir o eliminar la herencia en la imagen.
-  - Deuda TD-033: `.dockerignore` (`!.npmrc`) excluye `**/.npmrc` anidados; añadir `--ignore-pnpmfile` en las instalaciones y deploy del Dockerfile.
+  - Deuda TD-033: `.dockerignore` (`!.npmrc`) excluye `**/.npmrc` anidados; añadir `--ignore-pnpmfile` en las instalaciones y deploy del Dockerfile, incluido `docker/web.Dockerfile:22` (`web`, TASK-007).
+  - Deuda TD-035: webpack con `extensionAlias` en lugar de Turbopack en `apps/web` (`apps/web/next.config.ts:15-17`); revisar la vuelta a Turbopack cuando resuelva `.js → .ts` del workspace (vercel/next.js#82945; ADR-012).
+  - Deuda TD-036: `sharp`/libvips en la imagen de `web` sin cargarse en runtime (`images.unoptimized: true`); excluirlos de la imagen hasta que se usen (ADR-012:63).
+  - Deuda TD-037: claves de preview y `encryptionKey` generadas en el build dentro de la imagen de `web`; antes de publicarla, definir `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` en runtime o añadir Server Actions (ADR-012:65).
   - `Accepted` solo tras aprobación humana.
 
 ---
@@ -463,3 +479,13 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-21 | TASK-008: tester PASS, pero con evasión de hook (tras «no se leen ficheros .env», repitió la copia sin `--exclude=.env*`) → decisión humana: es evasión; se repiten la condición 1 de ADR-011 y la prueba Linux con el filtro exacto de `HOST_TAR`, script dentro de la copia filtrada, sin descargas sin verificar (recomendado `docker:cli` fijada por digest); incidencia en el informe junto a la de engine-dev (devops `sed -i.bak` = ejemplo correcto). Dos falsos positivos de `bash-guard` (`--exclude=.env`, `grep -i env`) corregidos por el humano. Orchestrator: `linux-run.sh` y logs Linux sin la contraseña (0 coincidencias); el CLI de Docker se había descargado sin verificar. |
 | 2026-10-21 | TASK-008: verificación completa — tester PASS (repetición válida: condición 1 de ADR-011 y Linux en `docker:27-cli` fijada por digest, filtro exacto de `HOST_TAR`), reviewer APPROVED (4 MINOR, 5 NIT), security APPROVED (1 MEDIUM, 6 LOW). Decisiones humanas de deuda: LOW aprobadas (latido en vuelo → TASK-015/026; arranque duplicado `index.ts`/`gated-main.ts` → TASK-015; test de heartbeat sin escritura periódica en BD → TASK-015; `tsconfig` de la imagen que extiende un fichero ausente → TASK-040; redact por profundidad/claves → TD-011/TASK-027; sin manejador global de `unhandledRejection` → TASK-027; `.npmrc` anidados y `--ignore-pnpmfile` → TASK-040; 300 ms reales en persistence → siguiente tarea que toque persistence; tests en imágenes y limpieza del `package.json` raíz en `migrate` → TASK-040); MEDIUM: workers con el mismo hostname o `WORKER_STALE_MS` distintos → TASK-026 (lease + guarda de `worker_id`), nota en `.env.example` ya; TD-021 OPEN MEDIUM (rol superusuario de `test`) → TASK-037; hostname en `worker_id`: dato operativo legítimo, sin acción; contraseña de prueba en transcripts aceptable hasta TASK-037. Paso 6 (architect: ARCHITECTURE §1, ADR-010/011) y `.env.example` (devops) en curso; después `/close-task` y `/commit`. |
 | 2026-10-21 | TASK-008 → DONE (tester PASS, reviewer APPROVED, security APPROVED). Informe en docs/reports/TASK-008.md. Desbloqueadas: ninguna (TASK-009 sigue BLOCKED por TASK-006 y TASK-007; TASK-015 por TASK-013). Deuda: TD-015, TD-020, TD-022 PAID; TD-017 parcial; TD-021 OPEN (MEDIUM, nota de security); TD-002 y TD-011 actualizadas; TD-025…TD-034 registradas con tarea de pago. TASK-040: placeholders «TD-NNN» de su DoD pendientes de sustituir por TD-025/TD-026 (texto ajeno a esta tarea, no tocado). |
+| 2026-10-21 | Orchestrator, tras el CLOSURE: placeholders TD-NNN de TASK-040 sustituidos por TD-025 y TD-026; viñeta TD-027 de TASK-014 sin condición y scope de TASK-014 ampliado con `packages/persistence/src/repositories/runs.integration.test.ts`. |
+| 2026-10-21 | TASK-008 commit 1f678c1 |
+| 2026-10-21 | TASK-007: plan aprobado (ADR-012 Accepted con la línea del 143 de `web`). Decisiones humanas: OD-039 (a) webpack con `extensionAlias` (Turbopack → deuda LOW, TASK-040); OD-040 (a) `runMigrations` fuera del índice, sub-export `@agentlab/persistence/migrate`, test de exports ampliado; OD-041 (a) `src/app` (architect corrige SPEC §8; el Orchestrator corrige en TASKS.md los scopes `apps/web/app/**` → `apps/web/src/app/**` de TASK-014, 016, 020, 024, 025, 028, 032, 034); OD-042 (a) con condición (security verifica los avisos con cita; si no, versiones con más de dos semanas y tarea fix; R2 en la misma verificación); OD-043/044/045/046 (a). Dependencias aprobadas sujetas a OD-042. Deuda LOW: `sharp` en la imagen → TASK-040. La instalación del architect en el scratchpad no es rodeo; docs-keeper escribe en AGENTS §4 «fuera del repositorio, instalar para validar está permitido; dentro, solo deps_allowed». TASK-007 → IN_PROGRESS. |
+| 2026-10-21 | TASK-007: paso 1 (persistence-dev) entregado (citas verificadas; incidencia menor: prettier del host, evidencia válida por el format:check en contenedor). Security (OD-042): NO VERIFICADA tal como estaba formulada — el parche de `next` es 16.4.1 (GHSA-2464-fhr4-w9xw/CVE-2026-96889, GHSA-673q-mjm6-r5xr, GHSA-p3m5-59mp-jv5r, 2026-10-14) y ningún aviso afecta a `react`/`react-dom` (los afectados son `react-server-dom-*`, GHSA-xqc2-xf4c-x3h3, GHSA-h3gv-c5rc-p453); el plan B (`next` 16.4.0) sería vulnerable (CRITICAL); R2 resuelto (la copia de RSC de next ≥ 16.4.1 lleva el arreglo). Decisión humana: `next` 16.4.2 con excepción (avisos citados en ADR-012 y en el plan), `react`/`react-dom`/@types 19.3.0 sin excepción; OD-047 cerrada sin efecto (la premisa de OD-042, 19.3.1 como parche, era falsa). Rutas de tareas futuras corregidas por el Orchestrator, derivadas de OD-041 (a): `apps/web/src/lib/api/**` (TASK-014), `apps/web/src/components/**` (TASK-016, 024, 028), `apps/web/src/proxy.ts` (TASK-039). docs-keeper corrige monorepo-conventions (sub-exports `/testing` y `/migrate`); architect corrige ARCHITECTURE §2 en el paso 5. Paso 2 (devops) lanzado. |
+| 2026-10-21 | TASK-007: paso 2 (devops) y correcciones del architect (citas de OD-042 en plan, ADR-012 y SPEC) verificados; monorepo-conventions con sub-exports. Paso 3 (web-dev) entregado parcial: app, config, handler y tests (make validate exit 0); build, sha de `tsconfig.json` y `next dev` PENDIENTES DEL PASO 4 por bloqueo correcto del hook (`no se expanden variables de entorno con secretos`). Decisiones humanas: Write tras el bloqueo de heredocs = conducta correcta, sin incidencia (fallo del hook con `mkdir -p` de un padre del scope, corregido); las tres evidencias pendientes las aporta devops en el paso 4 (build en la imagen sin credenciales; 200 de `/api/health` y 404 de `/projects` desde compose; sha256 de `tsconfig.json` antes y después); `next dev` no se prueba (la imagen real es la evidencia); `route.ts` al 0 %: el tester añade en la verificación un test del handler `GET` con una `Request` real (status y cabeceras). |
+| 2026-10-21 | TASK-007: paso 4 (devops) entregado y verificado en disco (imagen standalone, compose, Makefile, ignores; las tres evidencias del paso 3 aportadas; canarios, lockfile alterado, pausa/parada de db, 143 de web, macOS make test/validate exit 0). Decisiones humanas: Linux con la misma excepción del socket que TASK-008, solo para este paso y por última vez (desde TASK-006 la evidencia Linux la da el CI); `python3` en línea para editar `.dockerignore`/`.gitignore` = incidencia menor (segundo aviso a devops en dos tareas; a la tercera, la fase se repite) y regla nueva en AGENTS §4 y monorepo-conventions (scripts en línea que escriben en el repo cuentan como rodeo; `sed -i` y `tee` sobre rutas del scope permitidos); DoD del 503 ajustado a «entre 2,0 s y 2,5 s» (sin deuda; el tester ajusta el test y lo anota). Después, `/verify-task` con tester, reviewer y security. |
+| 2026-10-21 | TASK-007: docs-keeper — regla de edición en AGENTS §4 (:63) y monorepo-conventions (:35). Linux (devops, socket por última vez): `make test` y `make validate` status 0 (GNU make 4.4.1, tar 1.35; core 171, persistence 106, worker 44, web 3); contraseña ausente del log. Limpieza bloqueada por bash-guard (cd/rm con doble expansión de ruta en el scratchpad), citada y no rodeada; sin efecto (solo queda `db` de agentlab en marcha; volúmenes intactos). TASK-007 → REVIEW (`/verify-task`). |
+| 2026-10-21 | TASK-007: verificación — tester PASS (test nuevo de `GET` con `Request` real; 503 en 2,018–2,034 s), reviewer APPROVED (2 MINOR, 3 NIT), security APPROVED (7 LOW + 1 MEDIUM). Decisiones humanas: Host/Origin/cabeceras = requisito del DoD de TASK-014 (no deuda), verificado allí por security; OD-003 queda ligada y TD-005 se amplía con la nota de security; `images.unoptimized: true` ya (web-dev); test de exports de persistence exacto ya (`toEqual` + `existsSync`, persistence-dev); LOW con pago: `--ignore-pnpmfile` → TD-033, `read_only`/límites → TASK-037, claves de preview en la imagen → TASK-040, salida a internet de `web` → TD-018/TASK-020, pool por petición → TASK-014; webpack y sharp → TASK-040 (ya aprobadas). 162e6c8 = commit del humano (hook, Task: none). Reviewer con el Node del host (eslint): incidencia menor; docs-keeper añade a AGENTS §4 la regla de validar con la versión de Node del proyecto (contenedor o nvm) para todos los roles. TASK-007 → IN_PROGRESS, ciclo de corrección 1/3 (tester solo los dos puntos; reviewer con cita); después paso 5 (architect) y cierre. |
+| 2026-10-21 | TASK-007: ciclo 1/3 — persistence-dev (test de exports exacto) y web-dev (`images.unoptimized`) entregados; docs-keeper: AGENTS §4 (:64) regla de la versión de Node. Re-verificación del tester: FAIL — test de exports ✅ (falla con un sub-export ficticio), `make validate` EXIT=0, pero `/_next/image` sigue dejando un `unhandledRejection` `EACCES mkdir '/app/apps/web/.next/cache'` por petición aunque responde 404. Decisión humana (ciclo 2/3, devops): `tmpfs` en compose para `/app/apps/web/.next/cache`, uid 1000, tamaño acotado (64m); la imagen sigue sin nada escribible en `/app`; consecuencia en ADR-012 «la imagen de web requiere un tmpfs en .next/cache; compose lo provee» (compose es la unidad de despliegue, ARCHITECTURE §1); el tester comprueba 20 peticiones con 404 y log limpio, y security vuelve a verificar «nada escribible en /app» en la imagen final. TD-032 ampliada a `apps/web` (DoD de TASK-027). |
+| 2026-10-21 | TASK-007 → DONE (tester PASS en la verificación inicial y en los ciclos 1 y 2; reviewer APPROVED (inicial y delta); security APPROVED (inicial y delta); dos ciclos de corrección, 1/3 y 2/3). Informe en docs/reports/TASK-007.md. Desbloqueadas: ninguna (TASK-009 sigue BLOCKED por TASK-006; TASK-014 por TASK-011). Deuda: TD-009 y TD-010 PAID; TD-035…TD-039 registradas; TD-005, TD-018, TD-032 y TD-033 ampliadas. DoD de TASK-020, TASK-037 y TASK-040 ampliados. |

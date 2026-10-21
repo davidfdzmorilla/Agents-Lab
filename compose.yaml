@@ -31,12 +31,18 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?set it in .env (cp .env.example .env)}
 
-  # enabled by TASK-007, which adds docker/web.Dockerfile
+  # Exits with 143 on SIGTERM by design of Next (ADR-012); the only service that does not exit 0. Not a failure.
   web:
-    profiles: ["web"]
     build:
       context: .
       dockerfile: docker/web.Dockerfile
+      target: runtime
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    # Next writes its image cache here; keeps /app non-writable in the image (ADR-012).
+    tmpfs:
+      - /app/apps/web/.next/cache:uid=1000,gid=1000,mode=0700,size=64m
     ports:
       - "127.0.0.1:3000:3000"
     networks: [backend, egress]

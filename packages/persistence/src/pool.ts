@@ -6,11 +6,17 @@ export type Database = NodePgDatabase<typeof schema>;
 
 export function createPool(
   connectionString: string,
-  options: { readonly max?: number } = {},
+  options: {
+    readonly max?: number;
+    readonly connectionTimeoutMillis?: number;
+  } = {},
 ): pg.Pool {
   return new pg.Pool({
     connectionString,
     ...(options.max === undefined ? {} : { max: options.max }),
+    ...(options.connectionTimeoutMillis === undefined
+      ? {}
+      : { connectionTimeoutMillis: options.connectionTimeoutMillis }),
   });
 }
 

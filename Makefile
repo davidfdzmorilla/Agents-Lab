@@ -12,7 +12,7 @@ PNPM_STORE_VOLUME := agentlab-pnpm-store
 # The host filters the repo with tar and streams it over stdin; the container never mounts the repo,
 # so excluded files (.env*, .git, node_modules) cannot reach it. Patterns are unanchored names that
 # behave the same in bsdtar (macOS) and GNU tar. COPYFILE_DISABLE avoids AppleDouble ._ files.
-HOST_TAR := COPYFILE_DISABLE=1 tar -C "$(CURDIR)" --no-xattrs --exclude=node_modules --exclude=.git --exclude=.turbo --exclude=.pnpm-store --exclude=.env --exclude='.env.*' --exclude=.envrc --exclude='*.env' --exclude='.env-*' --exclude='.env_*' --exclude=settings.local.json --exclude=agent-memory-local -cf - .
+HOST_TAR := COPYFILE_DISABLE=1 tar -C "$(CURDIR)" --no-xattrs --exclude=node_modules --exclude=.git --exclude=.next --exclude=.turbo --exclude=.pnpm-store --exclude=.env --exclude='.env.*' --exclude=.envrc --exclude='*.env' --exclude='.env-*' --exclude='.env_*' --exclude=settings.local.json --exclude=agent-memory-local -cf - .
 DOCKER_NODE := docker run --rm -i --cap-drop ALL --security-opt no-new-privileges -v $(PNPM_STORE_VOLUME):/pnpm-store -e npm_config_store_dir=/pnpm-store -e TURBO_TELEMETRY_DISABLED=1 -w /work $(NODE_IMAGE) bash -euo pipefail -c
 # make test / make validate run in two phases (OD-019). Phase 1 has internet and no db: only the lockfile,
 # workspace file and .npmrc enter the container, and --ignore-scripts keeps package code from running
@@ -41,7 +41,7 @@ orchestrator:       ## Lanza Claude Code como Orchestrator (agente de sesión, A
 verify-hooks:       ## Comprueba que las barreras funcionan (atribución, scope)
 	@bash scripts/verify-hooks.sh
 
-up:                 ## Levanta db + worker (web desde TASK-007)
+up:                 ## Levanta db, migrate, worker y web
 	docker compose up --build -d
 
 up-local:           ## Igual, con Ollama (perfil local)

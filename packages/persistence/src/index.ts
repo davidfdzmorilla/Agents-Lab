@@ -2,7 +2,7 @@ export {
   CHECKPOINT_SCHEMA,
   checkpointSchemaExists,
 } from "./checkpointer/setup.js";
-export { runMigrations } from "./migrate.js";
+export { pingDatabase } from "./health.js";
 export { createDatabase, createPool, type Database } from "./pool.js";
 export * from "./repositories/agent-definitions.js";
 export * from "./repositories/events.js";
