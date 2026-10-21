@@ -142,14 +142,28 @@ EOF2
 fi
 
 # ---- secretos -----------------------------------------------------------------------
-if printf '%s' "$flat" | grep -Eq '(^|[;&| ])(cat|less|more|head|tail|bat|sed|awk|grep|rg|source|\.)[[:space:]]+[^;&|]*\.env([[:space:]]|$|\.)' && ! printf '%s' "$flat" | grep -Eq '\.env\.example'; then
+# Lectura de .env: solo cuando .env* es un ARGUMENTO de un comando que lee, no cuando aparece
+# en una opción (--exclude=.env, --ignore .env) ni en texto entre comillas. Se evalúa sobre el
+# texto saneado y descartando los tokens que empiezan por '-'.
+env_args="$(printf '%s' "$sanitized" | tr ' ' '\n' | grep -v '^-' | grep -E '(^|/)\.env(\.[A-Za-z0-9_.-]+)?$' | grep -v '\.env\.example$' | grep -v '\.env\.test\.example$' || true)"
+if [ -n "$env_args" ] && printf '%s' "$sanitized" | grep -Eq '(^|[;&| ])(cat|less|more|head|tail|bat|sed|awk|grep|rg|source|\.|cp|xxd|od|strings)[[:space:]]'; then
   block "no se leen ficheros .env desde Claude Code"
 fi
 if printf '%s' "$flat" | grep -Eq 'docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*[[:space:]](printenv|env)([[:space:]]|$)|docker[[:space:]]+inspect[^|;&]*(Config\.Env|\.Env\b)|docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*(cat|grep|sed|awk)[^|;&]*\.env'; then
   block "no se leen variables de entorno ni secretos de un contenedor en marcha; usa la credencial desechable del encargo"
 fi
-if printf '%s' "$flat" | grep -Eq '(^|[;&| ])(printenv|env)([[:space:]]*$|[[:space:]]*\|)|\$\{?[A-Z0-9_]*(API_KEY|SECRET|TOKEN|PASSWORD)[A-Z0-9_]*\}?' ; then
-  block "no se imprimen variables de entorno con secretos"
+# Impresión de secretos: `env`/`printenv` sin filtrar, o la EXPANSIÓN de una variable con nombre
+# sensible ($X, ${X}, ${!X}). Mencionar el nombre en un grep o leer un fichero del scratchpad no lo es.
+if printf '%s' "$flat" | grep -Eq '(^|[;&| ])(printenv|env)([[:space:]]*$|[[:space:]]*\|)'; then
+  block "no se vuelca el entorno completo"
+fi
+if printf '%s' "$flat" | grep -Eq '\$\{?!?[A-Za-z0-9_]*(API_KEY|SECRET|TOKEN|PASSWORD|PASSWD)[A-Za-z0-9_]*\}?' ; then
+  block "no se expanden variables de entorno con secretos"
+fi
+# Expansión indirecta (${!V}) o eval: sirven para montar el nombre de una variable por partes y
+# esquivar la regla anterior. No tienen uso legítimo aquí.
+if printf '%s' "$flat" | grep -Eq '\$\{![A-Za-z_]|(^|[;&| ])eval[[:space:]]'; then
+  block "expansión indirecta o eval no permitidos (podrían exponer secretos por nombre compuesto)"
 fi
 
 # ---- descargas ejecutadas -----------------------------------------------------------
