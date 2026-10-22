@@ -23,6 +23,11 @@ DOCKER_NODE := docker run --rm -i --cap-drop ALL --security-opt no-new-privilege
 LOCK_TAR := COPYFILE_DISABLE=1 tar -C "$(CURDIR)" --no-xattrs -cf - pnpm-lock.yaml pnpm-workspace.yaml .npmrc
 FETCH := mkdir -p /work && tar -C /work --no-same-owner -xf - && corepack enable && corepack prepare pnpm@9.15.9 --activate && pnpm fetch --ignore-scripts
 IN_TEST := : "$${DATABASE_URL_TEST:?DATABASE_URL_TEST is required for make test (cp .env.example .env)}" && mkdir -p /work && tar -C /work --no-same-owner -xf - && pnpm install --offline --frozen-lockfile --ignore-scripts
+# Credentials come only from the operator's .env, which compose reads from the project directory and passes
+# to the test service environment; no recipe interpolates or prints them. The check fails early and clearly.
+# ENV_FILE is overridable only to test the guard; compose always reads the project .env, so overriding it does not change where credentials come from.
+ENV_FILE := .env
+ENV_CHECK := test -f "$(ENV_FILE)" || { echo "missing $(ENV_FILE): run 'cp .env.example .env' and fill it in (make test/validate read credentials from it)" >&2; exit 1; }
 TEST_RUN := docker compose --profile test run --rm -T --build test bash -euo pipefail -c
 
 help:               ## Lista los targets
@@ -64,11 +69,13 @@ ps:                 ## Estado de los servicios
 	$(COMPOSE_FILLER) docker compose --profile '*' ps
 
 test:               ## Tests en contenedor contra db de compose (requiere .env; deja db en marcha, make down la para)
+	@$(ENV_CHECK)
 	@docker volume create $(PNPM_STORE_VOLUME) >/dev/null
 	set -o pipefail; $(LOCK_TAR) | $(DOCKER_NODE) '$(FETCH)'
 	set -o pipefail; $(HOST_TAR) | $(TEST_RUN) '$(IN_TEST) && pnpm test'
 
 validate:           ## typecheck + lint (workspaces y raíz) + test + format:check en contenedor, tests contra db (TD-008)
+	@$(ENV_CHECK)
 	@docker volume create $(PNPM_STORE_VOLUME) >/dev/null
 	set -o pipefail; $(LOCK_TAR) | $(DOCKER_NODE) '$(FETCH)'
 	set -o pipefail; $(HOST_TAR) | $(TEST_RUN) '$(IN_TEST) && pnpm -r typecheck && pnpm -r lint && $(LINT_ROOT) && pnpm test && pnpm format:check'

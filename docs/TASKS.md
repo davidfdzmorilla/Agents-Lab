@@ -2,11 +2,11 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-22 (TASK-006-fix-1 → DONE) |
+| Última actualización | 2026-10-22 (TASK-006-fix-2 → DONE) |
 | Hito actual | M0 |
 | Tarea en IN_PROGRESS | — |
 | Tarea en REVIEW | — |
-| Tareas READY | TASK-006-fix-2 (antes de TASK-009), TASK-009, TASK-010, TASK-012, TASK-042. Orden decidido por el humano: TASK-006-fix-2 → TASK-006-fix-3 → TASK-009 (fix-3 BLOCKED hasta fix-2). |
+| Tareas READY | TASK-006-fix-3 (antes de TASK-009), TASK-009, TASK-010, TASK-012, TASK-042. Orden decidido por el humano: TASK-006-fix-3 → TASK-009 (TASK-009 sigue READY, después de fix-3). |
 
 ## Cómo se lee este documento
 
@@ -161,7 +161,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `ci.yml` declara `defaults: run: shell: bash` a nivel de workflow (todos los `run:` con `-eo pipefail`); un segundo run en verde de los seis jobs en `ci/task-006-probe` con ese cambio, citado por el tester (MINOR del reviewer, ciclo de corrección 1/3).
 
 ### TASK-006-fix-1 · Test frágil de `updated_at` (CI de main en rojo)
-- **Estado**: DONE (run de CI de main pendiente de cita tras el push) · **Owner**: tester · **Depende de**: TASK-006 · **Severidad**: LOW (test frágil, no bug de producto) · Va antes de TASK-009: M0 no se cierra con main en rojo.
+- **Estado**: DONE (run de CI de main en verde: https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39728470300) · **Owner**: tester · **Depende de**: TASK-006 · **Severidad**: LOW (test frágil, no bug de producto) · Va antes de TASK-009: M0 no se cierra con main en rojo.
 - **Scope**: `packages/persistence/src/repositories/runs.integration.test.ts`
 - **Dependencias autorizadas**: ninguna.
 - **DoD**:
@@ -172,17 +172,19 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Verificación: reviewer con cita; el tester cita el run de CI de main tras el push del humano, con los seis jobs en verde (evidencia principal).
 
 ### TASK-006-fix-2 · `make test`/`make validate` cargan `.env`; fuera las credenciales de los encargos
-- **Estado**: READY (tras TASK-006-fix-1) · **Owner**: devops · **Depende de**: TASK-006-fix-1 · **Severidad**: LOW · Va antes de TASK-009.
-- **Scope**: `Makefile` (devops); `.claude/skills/task-packet/SKILL.md`, `docs/reports/TASK-006-fix-2.md`, `docs/TASKS.md`, `docs/TECHNICAL_DEBT.md` (docs-keeper, cierre)
+- **Estado**: DONE (informe en `docs/reports/TASK-006-fix-2.md`; sin plan, decisión humana) · **Owner**: devops · **Depende de**: TASK-006-fix-1 (DONE) · **Severidad**: LOW · Va antes de TASK-009.
+- **Scope**: `Makefile`, `.env.example` (devops); `.claude/skills/task-packet/SKILL.md`, `.claude/skills/testing-conventions/SKILL.md`, `docs/reports/TASK-006-fix-2.md`, `docs/TASKS.md`, `docs/TECHNICAL_DEBT.md` (docs-keeper, cierre)
 - **Dependencias autorizadas**: ninguna.
-- **DoD**:
-  - `make test` y `make validate` cargan `.env` igual que `make up` (incluida `DATABASE_URL_TEST`, ya documentada en `.env.example`), de modo que ningún encargo vuelva a llevar credenciales.
-  - Retirado de task-packet el campo «Credenciales de prueba» (plantilla y regla): los agentes no las necesitan ni deben verlas.
-  - Sin `.env`, `make test` y `make validate` siguen fallando con el mensaje actual (`cp .env.example .env`).
-  - Evidencia local con `.env`: la aporta el humano; Linux: la CI.
+- **DoD** (texto del humano):
+  - `make test` y `make validate` cargan `.env` si existe (mismo mecanismo que `make up`); sin `.env` fallan con un mensaje claro que diga «cp .env.example .env».
+  - Las variables del `.env` no se imprimen en ninguna receta (ni con `make -n`): se exportan al entorno de los contenedores, no se interpolan en la línea de comandos.
+  - `.env.example` documenta `DATABASE_URL_TEST` como obligatoria para `make test`.
+  - Prueba: con `.env` presente, `make test` y `make validate` salen 0 sin ninguna variable en el comando (evidencia del humano); sin `.env`, exit distinto de 0 con el mensaje.
+  - Reviewer con cita; security no aplica (no cambia superficie); el reviewer comprueba que ninguna receta hace echo de variables.
+  - Cierre (docs-keeper): retirado de task-packet el campo «Credenciales de prueba» (plantilla y regla); en testing-conventions: «los tests leen credenciales de .env del operador; ningún encargo ni informe contiene credenciales».
 
 ### TASK-006-fix-3 · Un solo reloj para `updated_at` (el de PostgreSQL)
-- **Estado**: BLOCKED · **Owner**: persistence-dev (`columns.ts` y test); architect (ARCHITECTURE §6) · **Depende de**: TASK-006-fix-2 · **Severidad**: LOW · Va antes de TASK-009.
+- **Estado**: READY (nota: su `make test` ya no necesita credenciales en el encargo; las lee del `.env` del operador, TASK-006-fix-2) · **Owner**: persistence-dev (`columns.ts` y test); architect (ARCHITECTURE §6) · **Depende de**: TASK-006-fix-2 · **Severidad**: LOW · Va antes de TASK-009.
 - **Scope**: `packages/persistence/src/schema/columns.ts` y su test de integración nuevo (`packages/persistence/src/schema/columns.integration.test.ts`) (persistence-dev); `docs/ARCHITECTURE.md` §6 (architect)
 - **Dependencias autorizadas**: ninguna.
 - **DoD**:
@@ -571,3 +573,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-21 | TASK-006-fix-1: tester corrigió `:86-99` (transition) y `:321-346` (`failOrphaned`); `:173`, `worker.test.ts:134` y `worker.integration.test.ts` sólidas; events sin aserciones de tiempo. `make test` no ejecutado: primero bloqueo de bash-guard («no se expanden variables de entorno con secretos») y, con el valor literal que indicó el Orchestrator, denegación del clasificador de permisos («[Credential Leakage]»); el tester paró las dos veces. Decisión humana: no se escriben credenciales en comandos (ni el humano con `!`); la evidencia local la aporta el humano con su `.env`; reviewer con cita; la CI de main tras el push es la evidencia principal. TASK-006-fix-2 creada (devops, LOW, antes de TASK-009): `make test`/`make validate` cargan `.env` y se retira el campo «Credenciales de prueba» de task-packet. Posible falso positivo de bash-guard (`git grep` con `>` dentro de la regex) reportado al humano. |
 | 2026-10-21 | TASK-006-fix-1: reviewer APPROVED sobre el código (2 NIT; DoD pendiente de la evidencia local del humano y del run de CI). Decisiones humanas: los dos NIT ahora con el tester (`expect(stale).not.toBeNull()` y retraso aplicado), sin deuda; `$onUpdate(() => sql\`now()\`)` decidido (a), no es OD — el Orchestrator lo saca a TASK-006-fix-3 por tamaño (código de producto en 8 tablas, owner persistence-dev, y ARCHITECTURE §6 por el architect), orden fix-1 → fix-2 → fix-3, todas antes de TASK-009. |
 | 2026-10-22 | TASK-006-fix-1 → DONE (reviewer APPROVED inicial con 2 NIT aplicados y delta APPROVED; tester: sin verificación separada, evidencia local del humano con `.env`: `make test && make validate` EXIT=0; security no aplica). Pendiente: cita del run de CI de main con los seis jobs (viñeta 4 del DoD), que el tester añade tras el push del humano. Informe en docs/reports/TASK-006-fix-1.md. Desbloqueadas: ninguna (TASK-006-fix-2 ya estaba READY). TASK-006-fix-2 → READY (sin cambio); TASK-006-fix-3 sigue BLOCKED por fix-2; TASK-009 sigue READY, después de fix-2 y fix-3. Deuda: ninguna nueva ni pagada. |
+| 2026-10-22 | TASK-006-fix-1 commit 56eea56 |
+| 2026-10-22 | TASK-006-fix-1: viñeta 4 del DoD — tester PASS. Push del humano a main; run CI sobre 56eea56 https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39728470300 en success con los seis jobs en success (persistence 8/8 ficheros, 106/106 tests; `runs.integration.test.ts` 69/69; el reporter no lista los tests por nombre). Antecedente: run sobre a69b7b0 https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39645621126 en failure solo en `test` («expected 1792604359660 to be greater than 1792604359660»). main en verde. Siguiente: TASK-006-fix-2. |
+| 2026-10-22 | TASK-006-fix-2 → IN_PROGRESS, sin plan (decisión humana). DoD reescrito con el texto del humano; scope ampliado con `.env.example` (devops) y `testing-conventions` (docs-keeper, cierre). |
+| 2026-10-22 | TASK-006-fix-2: devops entregó `ENV_CHECK` (`Makefile:26-29`, primera línea de `test`/`validate`); el resto del DoD ya se cumplía (`compose.yaml:105-107`, `.env.example:9`, `Makefile:25`). Incidencia: tras «BLOCKED by bash-guard: no se vuelca el entorno completo ni variables sensibles», devops lo calificó de falso positivo y lo repitió partido en dos greps. Decisión humana: la regla no distingue falso positivo de bloqueo correcto (se reporta y se para; lo decide el humano); partirlo para que pase es reformular → tercera nota a devops: se repite la fase de comprobaciones (diff igual, evidencias nuevas sin tocar ningún bloqueo). Corrección del Orchestrator: el tester hizo lo mismo en TASK-006-fix-1 (`git grep` con `>`), presentado entonces solo como posible falso positivo → segunda nota al tester, registrada a posteriori; no se repite nada (la CI en verde cubrió esa fase). Si resulta falso positivo del hook, la calificación no cambia y el hook se corrige. Mensaje de `ENV_CHECK` en inglés (todo lo que imprime el Makefile, ARCHITECTURE §10), en la repetición. |
+| 2026-10-22 | TASK-006-fix-2 → DONE (reviewer APPROVED, con el NIT de `Makefile:28` aplicado y comprobado; tester no entra, decisión humana; security no aplica; evidencia local del humano: `make test && make validate` EXIT=0). Informe en docs/reports/TASK-006-fix-2.md. Desbloqueadas: TASK-006-fix-3 → READY (su `make test` ya no necesita credenciales de encargo). TASK-009 sigue READY, después de fix-3. Deuda: ninguna nueva ni pagada. |
