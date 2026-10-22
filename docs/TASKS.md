@@ -2,10 +2,11 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-21 (TASK-006 → DONE; TASK-009 y TASK-042 → READY) |
+| Última actualización | 2026-10-22 (TASK-006-fix-1 → DONE) |
 | Hito actual | M0 |
+| Tarea en IN_PROGRESS | — |
 | Tarea en REVIEW | — |
-| Tareas READY | TASK-009, TASK-010, TASK-012, TASK-042 |
+| Tareas READY | TASK-006-fix-2 (antes de TASK-009), TASK-009, TASK-010, TASK-012, TASK-042. Orden decidido por el humano: TASK-006-fix-2 → TASK-006-fix-3 → TASK-009 (fix-3 BLOCKED hasta fix-2). |
 
 ## Cómo se lee este documento
 
@@ -158,6 +159,38 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Una ejecución real de los seis jobs en verde en GitHub Actions, con el enlace en el informe (OD-053 a): antes de DONE el humano hace push de una rama desechable `ci/task-006-probe`, la CI corre, el tester cita la URL del run y el resultado de cada job, y el humano borra la rama después.
   - Retirada de la excepción del socket de Docker: regla 10 de testing-conventions y viñeta de task-packet con el texto aprobado (docs-keeper, cierre); desde aquí la evidencia Linux la da la CI y ningún encargo autoriza montar el socket.
   - `ci.yml` declara `defaults: run: shell: bash` a nivel de workflow (todos los `run:` con `-eo pipefail`); un segundo run en verde de los seis jobs en `ci/task-006-probe` con ese cambio, citado por el tester (MINOR del reviewer, ciclo de corrección 1/3).
+
+### TASK-006-fix-1 · Test frágil de `updated_at` (CI de main en rojo)
+- **Estado**: DONE (run de CI de main pendiente de cita tras el push) · **Owner**: tester · **Depende de**: TASK-006 · **Severidad**: LOW (test frágil, no bug de producto) · Va antes de TASK-009: M0 no se cierra con main en rojo.
+- **Scope**: `packages/persistence/src/repositories/runs.integration.test.ts`
+- **Dependencias autorizadas**: ninguna.
+- **DoD**:
+  - `refreshes updated_at on every transition` (`runs.integration.test.ts:86-92`; falla en la CI de main, a69b7b0, cuando creación y transición caen en el mismo milisegundo): el fixture retrasa `updated_at` un minuto antes de la transición y la aserción comprueba que `updated_at` > ese valor antiguo y `>=` `createdAt`.
+  - Revisión de las demás aserciones de tiempo con el mismo patrón (events, heartbeat, `failOrphaned`; candidata conocida `runs.integration.test.ts:329`) y corrección en esta misma tarea; si alguna está fuera del scope, se reporta y no se toca.
+  - Guardas en los dos tests corregidos (NIT del reviewer, decisión humana: sin deuda): `expect(stale).not.toBeNull()` y que el retraso se aplicó (`stale.updatedAt < run.createdAt`).
+  - `make test` y `make validate` en verde en contenedor (nunca con el Node del host). Evidencia local: la aporta el humano desde su terminal con su `.env` (líneas de resumen); ningún agente ejecuta con credenciales en el comando.
+  - Verificación: reviewer con cita; el tester cita el run de CI de main tras el push del humano, con los seis jobs en verde (evidencia principal).
+
+### TASK-006-fix-2 · `make test`/`make validate` cargan `.env`; fuera las credenciales de los encargos
+- **Estado**: READY (tras TASK-006-fix-1) · **Owner**: devops · **Depende de**: TASK-006-fix-1 · **Severidad**: LOW · Va antes de TASK-009.
+- **Scope**: `Makefile` (devops); `.claude/skills/task-packet/SKILL.md`, `docs/reports/TASK-006-fix-2.md`, `docs/TASKS.md`, `docs/TECHNICAL_DEBT.md` (docs-keeper, cierre)
+- **Dependencias autorizadas**: ninguna.
+- **DoD**:
+  - `make test` y `make validate` cargan `.env` igual que `make up` (incluida `DATABASE_URL_TEST`, ya documentada en `.env.example`), de modo que ningún encargo vuelva a llevar credenciales.
+  - Retirado de task-packet el campo «Credenciales de prueba» (plantilla y regla): los agentes no las necesitan ni deben verlas.
+  - Sin `.env`, `make test` y `make validate` siguen fallando con el mensaje actual (`cp .env.example .env`).
+  - Evidencia local con `.env`: la aporta el humano; Linux: la CI.
+
+### TASK-006-fix-3 · Un solo reloj para `updated_at` (el de PostgreSQL)
+- **Estado**: BLOCKED · **Owner**: persistence-dev (`columns.ts` y test); architect (ARCHITECTURE §6) · **Depende de**: TASK-006-fix-2 · **Severidad**: LOW · Va antes de TASK-009.
+- **Scope**: `packages/persistence/src/schema/columns.ts` y su test de integración nuevo (`packages/persistence/src/schema/columns.integration.test.ts`) (persistence-dev); `docs/ARCHITECTURE.md` §6 (architect)
+- **Dependencias autorizadas**: ninguna.
+- **DoD**:
+  - `updatedAtColumn` usa `$onUpdate(() => sql\`now()\`)` en lugar de `new Date()` (decisión humana (a), hallazgo del reviewer en TASK-006-fix-1): `created_at` y `updated_at` salen del mismo reloj, el de la base.
+  - Test de integración: un `update` sin `updatedAt` explícito refresca `updated_at` con el reloj de la base (p. ej. retrasar `updated_at` por SQL, hacer un `update` de otra columna por Drizzle y comprobar que `updated_at` > valor retrasado y que coincide con `now()` de la transacción, no con el reloj del cliente).
+  - ARCHITECTURE §6 (`:214`), una línea: «los timestamps los fija PostgreSQL, nunca el cliente».
+  - Sin migración (el cambio es solo en la aplicación); si drizzle-kit genera una, se reporta.
+  - `make test` y `make validate` en verde (con `.env`, tras TASK-006-fix-2); la CI en verde.
 
 ### TASK-007 · apps/web: esqueleto Next.js + `GET /api/health`
 - **Estado**: DONE · **Owner**: web-dev (reparto por pasos: persistence-dev, devops, web-dev; plan en `docs/reports/TASK-007-plan.md`, ADR-012) · **Depende de**: TASK-005 · **security REQUIRED**
@@ -533,3 +566,8 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-21 | TASK-006: verificación — tester PASS (runs 39595685004 y 39595707253 en 09c451c), reviewer APPROVED (2 MINOR, 2 NIT), security APPROVED (1 MEDIUM, 4 LOW). Decisiones humanas: MEDIUM `main` sin protección → TASK-041 (creada: no existía en TASKS.md), BLOCKED hasta TASK-009, con el ruleset de security en su DoD; la configuración de GitHub la aplica el humano. LOW aprobadas: frontend `docker/dockerfile:1` sin digest → TASK-040; nombres con espacios en `.githooks/pre-commit` → el humano al cerrar TASK-009; digest en `check-node-version.sh` → TASK-042. MINOR `shell: bash` se corrige ya (mismo tipo de fallo que el pipefail del Makefile en TASK-003): TASK-006 → IN_PROGRESS, ciclo de corrección 1/3 (devops); el humano hace el segundo push a `ci/task-006-probe` con un worktree y el tester cita el run nuevo. Incidencias menores: devops `--no-verify` (segunda nota); tester con el Node 26 del host (segunda vez que un rol lo hace, tras el reviewer en TASK-007): desde ahora, ejecutar con el Node del host es incidencia con repetición de la evidencia. |
 | 2026-10-21 | TASK-006 ciclo de corrección 1/3 (Orchestrator): devops añadió `defaults: run: shell: bash` (`.github/workflows/ci.yml:16-18`) para cerrar el MINOR del reviewer (sin pipefail). Segundo push del humano a `ci/task-006-probe`, commit 3b635da: seis jobs en verde en los runs 39611635469 (push) y 39611647131 (pull_request), sin 141 en las tuberías con `head`. Decisiones humanas: el comentario de pipefail lo añade devops (`ci.yml:155-159`), sin tercer push; la frase sobre el SHA probado y el commit final va en `docs/reports/TASK-006.md` (sección b). Nota de licencia: decisión humana (b); ADR-008 (`:26` y `:28`) y ARCHITECTURE (`:250` y `:254`) corregidos por el architect; `package.json` sin tocar; si en M5 se pone `license` antes que LICENSE, va en TASK-038. |
 | 2026-10-21 | TASK-006 → DONE (tester PASS en la verificación inicial y en la re-verificación del ciclo 1/3; reviewer APPROVED (inicial y delta); security APPROVED (inicial); un ciclo de corrección, 1/3). Informe en docs/reports/TASK-006.md. Desbloqueadas: TASK-009 (depende de TASK-006 y TASK-007, ambas DONE) y TASK-042 (READY). TASK-041 sigue BLOCKED por TASK-009. Deuda: TD-007 PAID; TD-040…TD-048 registradas. |
+| 2026-10-21 | TASK-006 commit a69b7b0 |
+| 2026-10-21 | CI de main en rojo sobre a69b7b0: `persistence › runs.integration.test.ts:89` «refreshes updated_at on every transition», carrera de milisegundo (test frágil, no bug de producto; humano). TASK-006-fix-1 creada por decisión humana (tester, LOW, scope `runs.integration.test.ts`), antes de TASK-009; incluye revisar otras aserciones de tiempo con el mismo patrón. → IN_PROGRESS. |
+| 2026-10-21 | TASK-006-fix-1: tester corrigió `:86-99` (transition) y `:321-346` (`failOrphaned`); `:173`, `worker.test.ts:134` y `worker.integration.test.ts` sólidas; events sin aserciones de tiempo. `make test` no ejecutado: primero bloqueo de bash-guard («no se expanden variables de entorno con secretos») y, con el valor literal que indicó el Orchestrator, denegación del clasificador de permisos («[Credential Leakage]»); el tester paró las dos veces. Decisión humana: no se escriben credenciales en comandos (ni el humano con `!`); la evidencia local la aporta el humano con su `.env`; reviewer con cita; la CI de main tras el push es la evidencia principal. TASK-006-fix-2 creada (devops, LOW, antes de TASK-009): `make test`/`make validate` cargan `.env` y se retira el campo «Credenciales de prueba» de task-packet. Posible falso positivo de bash-guard (`git grep` con `>` dentro de la regex) reportado al humano. |
+| 2026-10-21 | TASK-006-fix-1: reviewer APPROVED sobre el código (2 NIT; DoD pendiente de la evidencia local del humano y del run de CI). Decisiones humanas: los dos NIT ahora con el tester (`expect(stale).not.toBeNull()` y retraso aplicado), sin deuda; `$onUpdate(() => sql\`now()\`)` decidido (a), no es OD — el Orchestrator lo saca a TASK-006-fix-3 por tamaño (código de producto en 8 tablas, owner persistence-dev, y ARCHITECTURE §6 por el architect), orden fix-1 → fix-2 → fix-3, todas antes de TASK-009. |
+| 2026-10-22 | TASK-006-fix-1 → DONE (reviewer APPROVED inicial con 2 NIT aplicados y delta APPROVED; tester: sin verificación separada, evidencia local del humano con `.env`: `make test && make validate` EXIT=0; security no aplica). Pendiente: cita del run de CI de main con los seis jobs (viñeta 4 del DoD), que el tester añade tras el push del humano. Informe en docs/reports/TASK-006-fix-1.md. Desbloqueadas: ninguna (TASK-006-fix-2 ya estaba READY). TASK-006-fix-2 → READY (sin cambio); TASK-006-fix-3 sigue BLOCKED por fix-2; TASK-009 sigue READY, después de fix-2 y fix-3. Deuda: ninguna nueva ni pagada. |

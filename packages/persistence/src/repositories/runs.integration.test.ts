@@ -85,9 +85,18 @@ describe("transition", () => {
 
   it("refreshes updated_at on every transition", async () => {
     const run = await createQueuedRun(db, scope);
+    await db.execute(
+      sql`update runs set updated_at = now() - interval '1 minute' where id = ${run.id}::uuid`,
+    );
+    const stale = await repo.get(run.id);
+    expect(stale).not.toBeNull();
+    expect(stale?.updatedAt.getTime()).toBeLessThan(run.createdAt.getTime());
     const updated = await repo.transition(run.id, "cancelled");
     expect(updated?.updatedAt.getTime()).toBeGreaterThan(
-      run.updatedAt.getTime(),
+      stale?.updatedAt.getTime() ?? Number.POSITIVE_INFINITY,
+    );
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(
+      run.createdAt.getTime(),
     );
   });
 });
@@ -316,6 +325,12 @@ describe("failOrphaned", () => {
       workerId: "hostB/old",
       heartbeatAgeMs: OLD,
     });
+    await db.execute(
+      sql`update runs set updated_at = now() - interval '1 minute' where id = ${run.id}::uuid`,
+    );
+    const stale = await repo.get(run.id);
+    expect(stale).not.toBeNull();
+    expect(stale?.updatedAt.getTime()).toBeLessThan(run.createdAt.getTime());
     await repo.failOrphaned({
       currentWorkerId: current,
       staleMs: STALE_MS,
@@ -326,7 +341,12 @@ describe("failOrphaned", () => {
     expect(after?.error).toEqual(error);
     expect(InvocationErrorSchema.safeParse(after?.error).success).toBe(true);
     expect(after?.finishedAt).not.toBeNull();
-    expect(after?.updatedAt.getTime()).toBeGreaterThan(run.updatedAt.getTime());
+    expect(after?.updatedAt.getTime()).toBeGreaterThan(
+      stale?.updatedAt.getTime() ?? Number.POSITIVE_INFINITY,
+    );
+    expect(after?.updatedAt.getTime()).toBeGreaterThanOrEqual(
+      run.createdAt.getTime(),
+    );
   });
 
   it("relies on running to failed being an allowed transition", () => {
