@@ -35,6 +35,9 @@ packages/<name>/
 - Un commit por tarea; el mensaje lo prepara `committer`.
 - Los ficheros del repositorio se editan con Edit/Write. Un script en línea (python3 -c, node -e, perl -i) que escriba en el repositorio cuenta como rodeo del hook aunque no haya habido bloqueo; sed -i y tee sobre rutas del scope sí están permitidos porque el hook los analiza.
 
+## Makefile y CI
+- Cualquier cambio en un target de Makefile que invoque la CI se revisa contra sus llamadas en `.github/workflows` (el reviewer las cita file:line y confirma que el cambio no rompe ninguna).
+
 ## Comandos
 ```
 pnpm install                       # nunca con paquetes nuevos sin deps_allowed

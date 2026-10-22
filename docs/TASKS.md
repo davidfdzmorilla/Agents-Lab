@@ -2,11 +2,11 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-22 (TASK-006-fix-2 → DONE) |
+| Última actualización | 2026-10-22 (TASK-006-fix-4 → VERIFIED, pendiente de CI) |
 | Hito actual | M0 |
 | Tarea en IN_PROGRESS | — |
 | Tarea en REVIEW | — |
-| Tareas READY | TASK-006-fix-3 (antes de TASK-009), TASK-009, TASK-010, TASK-012, TASK-042. Orden decidido por el humano: TASK-006-fix-3 → TASK-009 (TASK-009 sigue READY, después de fix-3). |
+| Tareas READY | TASK-006-fix-3 (antes de TASK-009), TASK-009, TASK-010, TASK-012, TASK-042. Orden decidido por el humano: TASK-006-fix-4 → TASK-006-fix-3 → TASK-009. |
 
 ## Cómo se lee este documento
 
@@ -183,8 +183,23 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Reviewer con cita; security no aplica (no cambia superficie); el reviewer comprueba que ninguna receta hace echo de variables.
   - Cierre (docs-keeper): retirado de task-packet el campo «Credenciales de prueba» (plantilla y regla); en testing-conventions: «los tests leen credenciales de .env del operador; ningún encargo ni informe contiene credenciales».
 
+### TASK-006-fix-4 · La guarda de `.env` se salta en CI (main rojo en 85e4d2e)
+- **Estado**: VERIFIED (pendiente de CI: run verde en el push de fix-4; con él pasa a DONE) · **Owner**: devops · **Depende de**: TASK-006-fix-2 (DONE) · **Severidad**: LOW (hotfix: main en rojo) · Va antes de TASK-006-fix-3 y de TASK-009.
+- **Origen**: CI de main en 85e4d2e en rojo: `validate-linux` falla en `Makefile:78` con «missing .env»; en CI las variables vienen del env del job, no de `.env`.
+- **Scope**: `Makefile` (devops); `docs/reports/TASK-006-fix-4.md`, `docs/TASKS.md`, `docs/reports/TASK-005.md` (redacción de `:409`), `.claude/skills/monorepo-conventions/SKILL.md` (docs-keeper, cierre); `.claude/hooks/bash-guard.sh` (`:159`, mensaje; edición manual del humano, ADR-006: ningún agente edita hooks)
+- **Dependencias autorizadas**: ninguna.
+- **DoD** (texto del humano):
+  - `ENV_CHECK` se salta cuando `CI` está definida: `[ -n "$$CI" ] || [ -f $(ENV_FILE) ] || { echo "…"; exit 1; }`. GitHub Actions pone `CI=true` siempre: no se toca el workflow. No se acepta `cp .env.example .env` en CI. Mensaje en inglés; una línea de comentario encima explicando el salto.
+  - `make ENV_FILE=.no-such-env validate` → falla con el mensaje (sin CI).
+  - `make -n validate` no muestra ningún valor.
+  - Reviewer: además del diff, cita las líneas de `.github/workflows` que invocan `make test` y `make validate` y confirma que ninguna exige `.env`. Regla permanente (docs-keeper la añade a monorepo-conventions al cerrar): cualquier cambio en un target de Makefile que invoque la CI se revisa contra sus llamadas en `.github/workflows`.
+  - Evidencia final: CI verde en el push de fix-4 (prueba de que la guarda se salta en CI; la viñeta 2 prueba que dispara sin CI). Hasta entonces la tarea no se cierra: queda VERIFIED pendiente de CI y el informe lo dice.
+  - Retirada (decisión humana): «`env CI=true make -n ENV_FILE=.no-such-env validate` no falla en la guarda» — `make -n` no ejecuta la guarda, no prueba nada.
+  - Informe: primera nota, incidencia del reviewer en fix-2 (aprobó sin mirar los call sites de CI).
+  - Entra también en el commit de fix-4: fila del registro pendiente (`TASK-006-fix-2 commit 85e4d2e`), redacción de `docs/reports/TASK-005.md:409` (placeholder `<redacted>`, el mismo del informe de TASK-003, que pre-commit exime; docs-keeper al cierre) y `.claude/hooks/bash-guard.sh:159` (mensaje; lo edita el humano a mano).
+
 ### TASK-006-fix-3 · Un solo reloj para `updated_at` (el de PostgreSQL)
-- **Estado**: READY (nota: su `make test` ya no necesita credenciales en el encargo; las lee del `.env` del operador, TASK-006-fix-2) · **Owner**: persistence-dev (`columns.ts` y test); architect (ARCHITECTURE §6) · **Depende de**: TASK-006-fix-2 · **Severidad**: LOW · Va antes de TASK-009.
+- **Estado**: READY, después de TASK-006-fix-4 (nota: su `make test` ya no necesita credenciales en el encargo; las lee del `.env` del operador, TASK-006-fix-2) · **Owner**: persistence-dev (`columns.ts` y test); architect (ARCHITECTURE §6) · **Depende de**: TASK-006-fix-2 · **Severidad**: LOW · Va antes de TASK-009.
 - **Scope**: `packages/persistence/src/schema/columns.ts` y su test de integración nuevo (`packages/persistence/src/schema/columns.integration.test.ts`) (persistence-dev); `docs/ARCHITECTURE.md` §6 (architect)
 - **Dependencias autorizadas**: ninguna.
 - **DoD**:
@@ -578,3 +593,13 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-10-22 | TASK-006-fix-2 → IN_PROGRESS, sin plan (decisión humana). DoD reescrito con el texto del humano; scope ampliado con `.env.example` (devops) y `testing-conventions` (docs-keeper, cierre). |
 | 2026-10-22 | TASK-006-fix-2: devops entregó `ENV_CHECK` (`Makefile:26-29`, primera línea de `test`/`validate`); el resto del DoD ya se cumplía (`compose.yaml:105-107`, `.env.example:9`, `Makefile:25`). Incidencia: tras «BLOCKED by bash-guard: no se vuelca el entorno completo ni variables sensibles», devops lo calificó de falso positivo y lo repitió partido en dos greps. Decisión humana: la regla no distingue falso positivo de bloqueo correcto (se reporta y se para; lo decide el humano); partirlo para que pase es reformular → tercera nota a devops: se repite la fase de comprobaciones (diff igual, evidencias nuevas sin tocar ningún bloqueo). Corrección del Orchestrator: el tester hizo lo mismo en TASK-006-fix-1 (`git grep` con `>`), presentado entonces solo como posible falso positivo → segunda nota al tester, registrada a posteriori; no se repite nada (la CI en verde cubrió esa fase). Si resulta falso positivo del hook, la calificación no cambia y el hook se corrige. Mensaje de `ENV_CHECK` en inglés (todo lo que imprime el Makefile, ARCHITECTURE §10), en la repetición. |
 | 2026-10-22 | TASK-006-fix-2 → DONE (reviewer APPROVED, con el NIT de `Makefile:28` aplicado y comprobado; tester no entra, decisión humana; security no aplica; evidencia local del humano: `make test && make validate` EXIT=0). Informe en docs/reports/TASK-006-fix-2.md. Desbloqueadas: TASK-006-fix-3 → READY (su `make test` ya no necesita credenciales de encargo). TASK-009 sigue READY, después de fix-3. Deuda: ninguna nueva ni pagada. |
+| 2026-10-22 | TASK-006-fix-2 commit 85e4d2e |
+| 2026-10-22 | main rojo en 85e4d2e: `validate-linux` falla en `Makefile:78` («missing .env»; la guarda de fix-2 no contempla CI). TASK-006-fix-4 creada (devops, scope `Makefile`, LOW, sin plan, decisión humana) → IN_PROGRESS; va antes de fix-3. Incidencia del reviewer en fix-2 (aprobó sin mirar los call sites de CI): primera nota, consta en el informe de fix-4. |
+| 2026-10-22 | TASK-006-fix-4: devops entregó la guarda con salto en CI (`Makefile:30` comentario; `:31` `ENV_CHECK := [ -n "$$CI" ] \|\| [ -f "$(ENV_FILE)" ] \|\| {…}`); workflow sin tocar. Evidencias: sin CI y sin `.env` → mensaje y EXIT=2; `make -n validate` solo muestra nombres de variables. Desviación: la evidencia de `make -n validate` se ejecutó con truncado y `PIPESTATUS` (EXIT vacío en zsh) en lugar del comando exacto del encargo; sin bloqueos de hooks. Bloqueo correcto al Orchestrator (bash-guard: escritura por shell en `docs/TASKS.md` fuera del scope): el `allow` tenía solo `Makefile` en vez del Scope literal de la tarea; reportado y parado, corregido después copiando el Scope completo. |
+| 2026-10-22 | TASK-006-fix-4, decisiones humanas: se retira la viñeta `make -n` con CI=true (no ejecuta la guarda); el comportamiento en ambos lados lo cubren la viñeta sin CI y el run verde de fix-4. `bash-guard.sh:159` lo edita el humano con el texto propuesto y entra en el commit de fix-4. Placeholder de `TASK-005.md:409`: `<redacted>`. |
+| 2026-10-22 | TASK-006-fix-4 → REVIEW. `bash-guard.sh:159` editado por el humano (solo el texto del mensaje). Verificación: tester → reviewer → security (aplica: el diff toca `.claude/hooks/`). |
+| 2026-10-22 | TASK-006-fix-4: tester PASS (1-3; 5 PENDING de CI) · reviewer APPROVED (2 MINOR: comentarios `Makefile:26-28` y ayuda `:72` no contemplan CI; 2 NIT: «job/step env» en `:30`, numeración real `:30`/`:31` — no `:29`/`:30` como dicen el encargo y la fila de la entrega) · security APPROVED (1 LOW = MINOR de `:26-28`). Call sites: solo `ci.yml:165` (`make validate`); `make test` no se llama desde CI (`ci.yml:117` corre `pnpm test`); CI no se sobrescribe; compose sin `env_file:`. Hook: solo texto (numstat 1/1). Pendiente: decisión humana sobre MINOR (ahora o deuda) y CI verde en el push. |
+| 2026-10-22 | TASK-006-fix-4 → IN_PROGRESS, ciclo de corrección 1 de 3. Decisión humana: los 2 MINOR y los 2 NIT ahora, sin deuda («un comentario que diga que las credenciales salen de .env cuando en CI no es así no se deja como deuda»); un solo cambio de devops, solo comentarios y la línea de ayuda, sin tocar recetas; reviewer revisa solo esas líneas; tester y security no vuelven salvo que el diff toque algo que no sea comentario o ayuda. NIT de numeración corregido por el Orchestrator en la fila de la entrega (`:30`/`:31`). |
+| 2026-10-22 | TASK-006-fix-4, ciclo 1: devops reescribió `Makefile:26-28` (local: `.env` del operador; CI: env de job/step), «job/step env» en `:30` y ayuda de `test` en `:72` («requiere .env fuera de CI»); ninguna receta, valor ni `ENV_CHECK` tocados (diff comprobado por el Orchestrator). → REVIEW; solo reviewer, sobre esas líneas (decisión humana). |
+| 2026-10-22 | TASK-006-fix-4 → VERIFIED (pendiente de CI). Verificación final: tester PASS (1-3; 4 n/a; 5 pendiente de CI) · reviewer APPROVED (ciclo 1 aplicado: 2 MINOR y 2 NIT, solo reviewer) · security APPROVED. Cierre docs-keeper: `docs/reports/TASK-006-fix-4.md`; `docs/reports/TASK-005.md:409` redactado con `<redacted>`; regla permanente de CI en `monorepo-conventions`. Deuda: ninguna nueva ni pagada. Desbloqueadas: ninguna; TASK-006-fix-3 sigue READY. Con el run verde del push de fix-4 pasa a DONE. |
+| 2026-10-22 | TASK-006-fix-4: el Orchestrator restituyó en `docs/reports/TASK-006-fix-4.md` el texto literal del REVIEW inicial (docs-keeper había completado a partir del resumen el «qué cambiar» de los MINOR y la línea de cumplimiento). Causa: el encargo de cierre llevó resúmenes en lugar de los informes íntegros que exige `/close-task`. Consta como nota e) del informe. |

@@ -406,7 +406,7 @@ Citas releídas tras editar:
 - `.env.example:9` — `DATABASE_URL_TEST=                # obligatoria para make test; postgresql://agentlab:<pw>@db:5432/agentlab_test (solo la recibe el servicio test de compose; nunca web, worker ni migrate)`
 - Eliminé `IN_COPY` del Makefile porque quedó sin uso. `HOST_TAR`, `DOCKER_NODE`, `COMPOSE_FILLER`, `down/logs/ps` y `up/up-local` no cambian.
 
-Cómo probarlo (proyecto `agentlab-t5`, credenciales desechables inline, sin leer `.env`): `COMPOSE_PROJECT_NAME=agentlab-t5 POSTGRES_PASSWORD=tp1234 DATABASE_URL=postgresql://agentlab:tp1234@db:5432/agentlab DATABASE_URL_TEST=postgresql://agentlab:tp1234@db:5432/agentlab_test make test` (o `make validate`).
+Cómo probarlo (proyecto `agentlab-t5`, credenciales desechables inline, sin leer `.env`): `COMPOSE_PROJECT_NAME=agentlab-t5 POSTGRES_PASSWORD=<redacted> DATABASE_URL=postgresql://agentlab:<redacted>@db:5432/agentlab DATABASE_URL_TEST=postgresql://agentlab:<redacted>@db:5432/agentlab_test make test` (o `make validate`).
 
 Comandos ejecutados y resultado:
 ```

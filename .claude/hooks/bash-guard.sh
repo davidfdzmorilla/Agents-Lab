@@ -156,7 +156,7 @@ if [ -n "$env_args" ] && printf '%s' "$sanitized" | grep -Eq '(^|[;&| ])(cat|les
   block "no se leen ficheros .env desde Claude Code"
 fi
 if printf '%s' "$flat" | grep -Eq 'docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*[[:space:]](printenv|env)([[:space:]]|$)|docker[[:space:]]+inspect[^|;&]*(Config\.Env|\.Env\b)|docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*(cat|grep|sed|awk)[^|;&]*\.env'; then
-  block "no se leen variables de entorno ni secretos de un contenedor en marcha; usa la credencial desechable del encargo"
+  block "no se leen variables de entorno ni secretos de un contenedor en marcha; la evidencia con la base la aporta el humano con su .env"
 fi
 # Impresión de secretos: `env`/`printenv` sin filtrar, o la EXPANSIÓN de una variable con nombre
 # sensible ($X, ${X}, ${!X}). Mencionar el nombre en un grep o leer un fichero del scratchpad no lo es.
