@@ -16,7 +16,7 @@ if ! printf '%s' "$first" | grep -Eq '^(feat|fix|test|docs|chore|refactor|ci|bui
   exit 1
 fi
 
-if ! printf '%s' "$msg" | grep -Eq '^Task: (TASK-[0-9]{3}(-fix-[0-9]+)?|none)$'; then
+if ! printf '%s' "$msg" | grep -Eq '^Task: (TASK-[0-9]{3}(-fix-[0-9]+|-prep)?|none)$'; then
   echo "commit-msg: falta el trailer 'Task: TASK-NNN' (o 'Task: none' solo para commits manuales de repositorio)." >&2
   exit 1
 fi

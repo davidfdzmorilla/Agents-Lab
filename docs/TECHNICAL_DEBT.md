@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-10-21 (cierre TASK-006: TD-040…TD-048 registradas; TD-007 PAID) |
+| Última actualización | 2026-10-23 (cierre TASK-009-prep: TD-049 y TD-050 registradas; TD-023 PAID) |
 
 Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, con fecha de pago. Si no tiene fecha de pago (hito), no es deuda: es un bug o una OPEN DECISION.
 
@@ -34,7 +34,7 @@ Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, co
 | TD-020 | La imagen `migrate` contiene las devDependencies de la raíz (`eslint`, `vitest`, `prettier`, `turbo`, `vite`…): pnpm 9 con `--frozen-lockfile` siempre instala el importer raíz aunque el filtro lo excluya. Imagen one-shot, sin puertos, sin red externa, no reutilizada. | LOW | TASK-005 (M0) | TASK-008 (con TD-015, mismo mecanismo; `pnpm deploy` y limpieza de la raíz en `migrate`) | PAID (TASK-008) |
 | TD-021 | El servicio `test` se conecta a PostgreSQL como superusuario (TD-013) y comparte la red `backend` (alcanza la base `agentlab` y, con el perfil `local`, `ollama`, que tiene salida a internet; con el override de TD-016, `db` también). Nota de security (TASK-008): sin rol no superusuario, `COPY … TO/FROM PROGRAM` ejecutaría comandos en `db` (que está en `backend`) → `ollama` (perfil local) o, con el override de TD-016, internet; no demostrado. Red pagada en TASK-008 (`test-db`, `internal: true`, solo `db` + `test`). | MEDIUM | TASK-005 (M0) | TASK-037 (rol de test sin superusuario y sin `pg_execute_server_program`, con TD-013) | OPEN (parte de red PAID en TASK-008) |
 | TD-022 | `migrate` y `worker` sin `cap_drop`/`no-new-privileges`; `test` corre como uid 0 (CapEff 0); `docker/worker.Dockerfile:12` y `:16` sin `--ignore-scripts`; `.dockerignore` excluye menos que `HOST_TAR` (`.envrc`, `*.env`, `.env-*`, `.env_*`) y ese contexto entra en la imagen `migrate`. | LOW | TASK-005 (M0) | TASK-008 | PAID (TASK-008) |
-| TD-023 | Los CLI `db:migrate`/`db:reset` no tienen test automático (probados a mano), incluido que el error no lleve la URL. | LOW | TASK-005 (M0) | TASK-009 | OPEN |
+| TD-023 | Los CLI `db:migrate`/`db:reset` no tienen test automático (probados a mano), incluido que el error no lleve la URL. | LOW | TASK-005 (M0) | TASK-009 | PAID (TASK-009-prep) |
 | TD-024 | `packages/core/src/env.test.ts` (`loadEnv > reads process.env by default`) depende del `process.env` real, por donde llega `DATABASE_URL_TEST` vía turbo. | LOW | TASK-005 (M0) | TASK-027 | OPEN |
 | TD-025 | Los tests y los helpers `src/testing/**` (incluido el `DROP DATABASE` de `packages/persistence/src/testing/reset.ts`) acaban en las imágenes `worker` y `migrate` (`pnpm deploy`). | LOW | TASK-008 (M0) | TASK-040 | OPEN |
 | TD-026 | `npm pkg delete devDependencies` en el stage `migrate-deploy` de `docker/worker.Dockerfile`: parche para la condición 2 de ADR-011. Pago: comprobar con el pnpm al que se suba si `pnpm deploy` ofrece una opción nativa para omitirlas; si la hay, quitar el parche (evidencia: `ls /app/node_modules/.bin` de `migrate` = `drizzle-kit tsx`). | LOW | TASK-008 (M0) | TASK-040 | OPEN |
@@ -60,6 +60,8 @@ Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, co
 | TD-046 | El endpoint de audit de pnpm 9 está en retirada; el job `audit` depende de él. | LOW | TASK-006 (plan, aprobada) | TASK-040 (M0) | OPEN |
 | TD-047 | `secrets-scan` solo revisa HEAD, no el historial (pendiente de gitleaks o equivalente sobre el historial). | LOW | TASK-006 (plan, aprobada) | TASK-037 (M5) | OPEN |
 | TD-048 | Los SHA de las acciones de CI no se actualizan solos (sin Dependabot de actions). | LOW | TASK-006 (plan, aprobada) | TASK-040 (M0) | OPEN |
+| TD-049 | `web` no tiene healthcheck en Compose (`compose.yaml:35-57`) y `make up -d` vuelve antes de que Next escuche; el README pide reintentar el `curl` de `/api/health`. | MEDIUM | TASK-009-prep (reviewer) | TASK-043 (después de M0) | OPEN |
+| TD-050 | Faltan targets `make db-migrate` y `make db-reset` que ejecuten los CLI en contenedor con el `.env`, como `make test`; mientras tanto, `db:*` desde el host requiere el override de puerto y pasar las URL en el entorno del proceso. | LOW | TASK-009-prep (decisión humana) | TASK-043 (propuesta del Orchestrator, pendiente de confirmación humana) | OPEN |
 
 ## Reglas
 

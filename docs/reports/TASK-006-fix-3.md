@@ -6,7 +6,7 @@
 | Hito | M0 (sobre TASK-006-fix-2 y TASK-006-fix-4) |
 | Owner | persistence-dev (`columns.ts` y test de integración); architect (`docs/ARCHITECTURE.md` §6) |
 | Fecha | 2026-10-23 (fecha del encargo del Orchestrator, sacada de `date +%F`) |
-| Estado final | **VERIFIED (pendiente de CI)**. Pasa a DONE cuando el humano traiga el run de CI en verde, como fix-4 |
+| Estado final | **DONE**. Commit f85dd59; CI verde: https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39916572963 (los seis jobs en success) |
 | Veredictos | tester PASS (primera ronda y ciclo 1) · reviewer CHANGES_REQUESTED (primera ronda, un [MAJOR]) y APPROVED (ciclo 1) · security no aplica (decisión humana) |
 | Plan | Ninguno (decisión humana) |
 | Severidad | LOW |
@@ -420,6 +420,6 @@ e) **Orchestrator.** En el registro del 2026-10-22 escribió que el architect «
 
 ## Estado final
 
-**VERIFIED (pendiente de CI).** Pendiente: el run de CI en verde tras el push del humano. Cuando llegue, pasa a DONE, como en TASK-006-fix-4.
+**DONE.** Commit f85dd59. Push del humano a main; run de CI https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39916572963 en success, con los seis jobs en success (lint, typecheck, test, audit, secrets-scan, validate-linux).
 
 Instalación y comandos: sin cambios. README no se toca.
