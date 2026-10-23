@@ -13,7 +13,7 @@ export const updatedAtColumn = () =>
   timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
-    .$onUpdate(() => new Date());
+    .$onUpdate(() => sql`now()`);
 
 // Values come from constant lists exported by core, never from user input.
 export function inList(column: AnyColumn, values: readonly string[]): SQL {

@@ -6,8 +6,8 @@
 | Hito | M0 (hotfix sobre TASK-006-fix-2) |
 | Owner | devops |
 | Fecha | 2026-10-22 (fecha del encargo del Orchestrator; docs-keeper no ejecuta `date`) |
-| Estado final | **VERIFIED (pendiente de CI: run verde en el push de fix-4; con él pasa a DONE)** |
-| Veredictos | tester PASS (viñetas 1-3; 4 n/a; 5 pendiente de CI) · reviewer APPROVED (inicial y ciclo 1) · security APPROVED |
+| Estado final | **DONE** (CI verde en el push de 595d43a: https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39826608260) |
+| Veredictos | tester PASS (viñetas 1-3; 4 n/a; 5 cumplida con el run de CI) · reviewer APPROVED (inicial y ciclo 1) · security APPROVED |
 | Plan | Ninguno (decisión humana) |
 | Severidad | LOW (hotfix: main en rojo) |
 
@@ -136,6 +136,6 @@ e) **Orchestrator, cierre**: el encargo de cierre llevó resúmenes, no los info
 
 ## Pendiente
 
-- **CI verde en el push del commit de fix-4: pendiente.** Cita del run: [añadir URL o identificador del run tras el push]. Hasta que se añada esa cita, la tarea queda **VERIFIED (pendiente de CI)** y no pasa a DONE. Con el run verde, pasa a DONE.
-- Desbloqueos: ninguno. TASK-006-fix-3 queda READY tras fix-4. Orden decidido por el humano: TASK-006-fix-4 → TASK-006-fix-3 → TASK-009.
+- **CI verde en el push del commit de fix-4: cumplido.** Commit 595d43a; run https://github.com/davidfdzmorilla/Agents-Lab/actions/runs/39826608260 en success con los seis jobs en success (lint, typecheck, test, audit, secrets-scan, validate-linux). La tarea pasa a **DONE**.
+- Desbloqueos: ninguno (TASK-006-fix-3 ya era READY; va ahora). Orden decidido por el humano: TASK-006-fix-4 → TASK-006-fix-3 → TASK-009.
 - Calificación de la desviación de devops (nota b): pendiente del humano.
