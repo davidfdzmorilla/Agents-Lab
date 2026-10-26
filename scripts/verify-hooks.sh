@@ -30,6 +30,7 @@ if printf '{"tool_name":"Bash","tool_input":{"command":"pnpm add lodash"}}' | ba
 
 if printf '{"tool_name":"Edit","tool_input":{"file_path":"%s/docs/TASKS.md"}}' "$root" | bash "$root/.claude/hooks/scope-guard.sh" 2>/dev/null; then ok "scope-guard permite TASKS.md con tarea activa"; else bad "scope-guard bloqueó TASKS.md con tarea activa"; fi
 if printf '{"tool_name":"Bash","tool_input":{"command":"sed -i s/a/b/ apps/web/page.tsx"}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then bad "permitió sed -i fuera de scope"; else ok "bloquea sed -i fuera de scope"; fi
+if printf '{"tool_name":"Bash","tool_input":{"command":"grep -nE \\"task-scope|cp |> \\\\\\"|rm \\" scripts/verify-hooks.sh"}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then ok "no confunde una comilla escapada dentro de una cadena con una redirección"; else bad "bloqueó un grep por una comilla escapada en el patrón"; fi
 if printf '{"tool_name":"Bash","tool_input":{"command":"pnpm install 2>&1"}}' | bash "$root/.claude/hooks/bash-guard.sh" 2>/dev/null; then ok "no confunde 2>&1 con un paquete"; else bad "trató 2>&1 como paquete"; fi
 
 if printf '{"tool_name":"Write","tool_input":{"file_path":"/tmp/claude-scratch/probe.sh"}}' | bash "$root/.claude/hooks/scope-guard.sh" 2>/dev/null && printf '{"tool_name":"Write","tool_input":{"file_path":"/tmp/claude-scratch/probe.sh"}}' | bash "$root/.claude/hooks/role-guard.sh" devops 2>/dev/null; then ok "Write fuera del repo (scratchpad) permitido"; else bad "bloqueó Write en el scratchpad"; fi

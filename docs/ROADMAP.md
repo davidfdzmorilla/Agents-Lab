@@ -9,7 +9,9 @@ Seis hitos. El orden importa: primero una ejecución funcional de extremo a extr
 
 Un hito se cierra cuando (a) todas sus tareas en `TASKS.md` están `DONE`, (b) su criterio de salida se ha verificado y el informe está en `docs/reports/M<n>-closure.md`, (c) el humano lo acepta.
 
-## M0 — Base: fundamentos y entorno
+## M0 — Base: fundamentos y entorno ✅ Cerrado el 2026-10-26
+
+Cierre: [`docs/reports/M0-closure.md`](reports/M0-closure.md) (aceptado por el humano el 2026-10-26). Verificación de la tarea: [`docs/reports/TASK-009.md`](reports/TASK-009.md).
 
 **Paquetes que nacen**: `core`, `persistence`, `apps/web` (solo `/api/health` y página vacía), `apps/worker` (bucle vacío con heartbeat).
 

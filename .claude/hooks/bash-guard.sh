@@ -32,7 +32,7 @@ while i<len(lines):
   out.append(ln); i+=1
 s=" ".join(out)
 s=re.sub(r"\x27[^\x27]*\x27"," ",s)
-s=re.sub(r"\"(?:[^\"\\\\]|\\\\.)*\""," ",s)
+s=re.sub(r"\"(?:[^\"\\]|\\.)*\""," ",s)
 sys.stdout.write(s)
 ' 2>/dev/null || printf '%s' "$flat")"
 
