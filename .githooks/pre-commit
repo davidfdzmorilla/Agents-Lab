@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Bloquea secretos y ficheros prohibidos en el staging (docs/AGENTS.md §4).
 set -u
-files="$(git diff --cached --name-only --diff-filter=ACMR)"
-[ -z "$files" ] && exit 0
+# Un nombre como ":(icase)x" es magia de pathspec para git diff: que cada nombre sea literal (S10).
+export GIT_LITERAL_PATHSPECS=1
 status=0
 
-for f in $files; do
+# -z: un nombre por registro separado por NUL, sin partir por espacios ni expandir comodines (TD-044).
+while IFS= read -r -d '' f; do
   case "$f" in
     .env|.env.*|*/.env|*/.env.*)
       [ "$f" = ".env.example" ] || [ "$f" = "tests/.env.test.example" ] || { echo "pre-commit: '$f' no se commitea nunca." >&2; status=1; } ;;
@@ -22,5 +23,5 @@ for f in $files; do
   if [ -f "$f" ] && [ "$(wc -c < "$f")" -gt 1048576 ]; then
     echo "pre-commit: '$f' supera 1 MB." >&2; status=1
   fi
-done
+done < <(git diff --cached --name-only -z --diff-filter=ACMR)
 exit $status

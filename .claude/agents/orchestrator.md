@@ -14,6 +14,7 @@ hooks:
       hooks:
         - type: command
           command: "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/role-guard.sh orchestrator"
+          onFailure: block
 ---
 
 # Orchestrator — agente de sesión de AgentLab

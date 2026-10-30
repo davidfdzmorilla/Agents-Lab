@@ -382,6 +382,9 @@ Decisiones que la especificación **no** fija. Los agentes de desarrollo no las 
 | OD-051 | ~~Ampliación del scope de TASK-006~~ **RESUELTA (2026-10-21)**: aprobada la tabla «Scope final» del plan de TASK-006 tal cual (`.nvmrc`, `README.md`, skills `testing-conventions` y `task-packet`, `docs/TECHNICAL_DEBT.md`, `docs/TASKS.md`, ARCHITECTURE §9 y SPEC §13) | architect → humano | M0 (TASK-006) |
 | OD-052 | ~~Alcance de «ficheros de configuración de la raíz» (TD-007)~~ **RESUELTA (2026-10-21)**: opción (a), ESLint sobre los `*.js`/`*.ts` de la raíz (`LINT_ROOT` en `make lint` y `make validate`) más `format:check`; YAML y shell quedan fuera de TASK-006 | architect → humano | M0 (TASK-006) |
 | OD-053 | ~~Evidencia del CI frente al orden DONE → commit → push~~ **RESUELTA (2026-10-21)**: opción (a). Antes de DONE, **el humano** hace push desde su terminal de una rama desechable (`ci/task-006-probe`); la CI corre, el tester cita en su informe la URL del run y el resultado de cada job, y el humano borra la rama después. "Es la única evidencia real del DoD de esta tarea." Claude nunca hace push | architect → humano | M0 (TASK-006) |
+| OD-054 | ¿Se activa el sandbox de Claude Code (`sandbox.enabled`: restricciones de lectura, escritura y red que impone el sistema operativo a la herramienta Bash) para proteger `.env*` y las barreras (`.claude/**`, `.githooks/**`, `~/.claude/settings.json`, `~/.zshrc`, `~/.gitconfig`) en el camino Bash, donde hoy solo las protege `bash-guard.sh`, una criba de texto con huecos conocidos? Surgió en TASK-044, ciclo 1, como propuesta de security (deuda MEDIUM «barreras fuera del repo»). Propuesta abajo | architect → humano | Al cerrar TASK-044 y antes de TASK-010: la prueba del sandbox tiene que hacerse contra el bash-guard definitivo, y M2 lleva a `.env` las primeras `*_API_KEY` reales. No bloquea TASK-044 |
+| OD-055 | ¿Se protegen las barreras (`.claude/hooks`, `.githooks`, `.claude/settings.json`) también por el sistema de ficheros, con `chflags -R uchg`, además del texto (bash-guard)? Hoy un `cp` que bash-guard no ve (variables, intérpretes) llega a los hooks. Surgió en TASK-044, ciclo 3 (OD-N del plan, CC3.19). Posición del humano (2026-10-28): no a `schg`; si acaso, `uchg` sobre esas tres rutas, con bash-guard bloqueando `chflags` (ya hecho: E9). Falta elegir entre `uchg` ya o solo si OD-054 se retrasa. Propuesta abajo | architect → humano | Junto con OD-054, al cerrar TASK-044 y antes de TASK-010. No bloquea TASK-044 |
+| OD-056 | Ampliar OD-054 a los directorios del PATH, `~/.claude`, `~/.zshrc` y `~/.gitconfig`. **Parte decidida (2026-10-28)**: «Ampliar OD-054 a los directorios del PATH: sí». **Abierta: la forma**: (a) reglas `Edit(...)` deny y `denyWrite` del sandbox para cada directorio del PATH del usuario, `~/.claude/**`, `~/.zshrc` y `~/.gitconfig`; (b) (a) más C6 (`#!/bin/bash` y PATH fijo `/usr/bin:/bin` al principio de cada hook); (c) lista blanca en scope-guard: Write/Edit solo dentro del repo y del scratchpad. Surgió en TASK-044, ciclo 3 (OD-O del plan, CC3.19). Propuesta abajo | architect → humano | En la tarea de OD-054 (antes de TASK-010); C6 en la tarea de C2/C6. No bloquea TASK-044 |
 
 OD-008 no existe a propósito: se mencionó en sesión como "no abierta" y su número no se reutiliza.
 
@@ -398,3 +401,80 @@ Contexto: `tsconfig.base.json` usa `module: ESNext` + `moduleResolution: bundler
 | (c) Type stripping nativo de Node (activo por defecto desde 22.18.0, sin aviso; [docs Node 22](https://nodejs.org/docs/latest-v22.x/api/typescript.html), consultadas 2026-10-20) | Ninguna; exige fijar Node `>=22.18` en `.nvmrc`/Dockerfiles | Cero dependencias; ejecuta exactamente el fuente | Estabilidad 1.2 (*release candidate*); exige extensión `.ts` en **todos** los imports relativos → cambiar `tsconfig` (`allowImportingTsExtensions` o `rewriteRelativeImportExtensions`, `erasableSyntaxOnly`) y reescribir la convención de TASK-001; sin `enum`, *parameter properties* ni `namespace` con valores; no lee `tsconfig`; rechaza `.ts` bajo `node_modules` (los enlaces de pnpm se resuelven a `packages/*` por realpath, pero hay que verificarlo) |
 
 **Recomendación del architect: (a) `tsx 4.23.15`**, exacta, como dependencia de `apps/worker`, invocada como `node --import tsx`. Es la única opción que no cambia la convención de módulos ya aprobada en TASK-001 y usa un solo comando en dev, test y contenedor. (c) queda como vía de migración cuando el type stripping sea estable, y (b) si el tamaño o el arranque de la imagen llegan a importar. La decisión final se registrará en un ADR antes de TASK-003 (encargo aparte) y requiere añadir `tsx` a `deps_allowed`.
+
+### OD-054 — Propuesta (`PROPUESTA — pendiente de decisión humana`)
+
+Origen: TASK-044, ciclo 1, propuesta de security (§5 de su informe y deuda MEDIUM «barreras fuera del repo»). Versión instalada: Claude Code 2.1.311. Toda la documentación citada se consultó el 2026-10-27; las siglas remiten a las fuentes del final.
+
+**Qué hay hoy en el camino Bash**
+- `sandbox.enabled` vale `false` por defecto [REF].
+- Las reglas `Read(...)`/`Edit(...)` deny de `.claude/settings.json` gobiernan las herramientas de ficheros y, además, «file commands Claude Code recognizes in Bash, such as `cat`, `head`, `tail`, `sed`, and `tee`», y los destinos de las redirecciones; no gobiernan `grep -r pattern .` ni los subprocesos que abren ficheros por su cuenta (un script de Python o de Node) [PERM]. Matiz a security: según la documentación, `cat .env` sí lo para la regla deny. Lo que queda sin capa son los huecos de M3/W (globs, `grep -r`, intérpretes, heredocs que se ejecutan). La documentación no dice si casa un glob como `cat .env*`.
+- Las barreras fuera del repo no tienen ninguna capa: `touch $HOME/…` funcionó, y `disableAllHooks` (ámbito «Any file» [REF]) en `~/.claude/settings.json` apaga todos los hooks con una sola escritura.
+
+**Qué hace el sandbox según la documentación [SBX]**
+- En macOS usa Seatbelt. Aplica a Bash y a sus procesos hijos, también dentro de los subagentes. Quedan fuera las herramientas Read, Edit, Write, WebFetch y WebSearch, los hooks, los servidores MCP y lo que el humano teclea tras `!`.
+- Escritura por defecto: el directorio de trabajo, «a per-user temp directory» y los directorios añadidos. Lectura por defecto: casi toda la máquina.
+- `denyRead` suma las reglas `Read(...)` deny, y `denyWrite` suma las `Edit(...)` deny [REF]. Activar el sandbox convierte en restricción del sistema operativo las reglas de `.env` que ya existen.
+- Protegidos contra escritura aunque estén en una zona escribible, sin configurar nada: los ficheros de settings de `.claude`, `.claude/{skills,agents,commands,hooks}` y `.mcp.json` (en el directorio de trabajo y en los superiores); `.bashrc`, `.zshrc`, `.gitconfig`, `.git/hooks` y `.git/config` (solo en el directorio de trabajo); y la mayor parte de `~/.claude` y `~/.claude.json`. `~/.zshrc` y `~/.gitconfig` quedan cubiertos porque el directorio personal no es escribible por defecto.
+- Hay tres fallos abiertos por defecto, cada uno con su clave:
+  - si el sandbox no arranca, los comandos se ejecutan sin él (`failIfUnavailable: true` lo impide);
+  - Claude puede reintentar sin sandbox con `dangerouslyDisableSandbox` (`allowUnsandboxedCommands: false` lo impide [REF]);
+  - `excludedCommands` saca del sandbox los comandos que casan, por texto.
+
+**Lo que choca con las restricciones del proyecto**
+- «`docker` is incompatible with the sandbox» [SBX]. La salida documentada es `excludedCommands` (`docker compose *`). Como se casa por texto, `make test` no casa con `docker compose *`, y haría falta `make *`.
+- La documentación advierte que excluir una herramienta que actúa sobre un fichero del directorio de trabajo, como `docker compose` con su compose file, permite escribir ese fichero y ejecutarlo fuera del sandbox [SBX]. Con `make` pasa lo mismo con el `Makefile`. Abrir el socket de Docker (`allowUnixSockets`) equivale a dar acceso al host [SBX, REF]. Conclusión: el sandbox no protege `.env` de un comando excluido. Por ejemplo, un `docker run -v` lo monta, y compose ya lo lee por diseño.
+- La red empieza vacía (`allowedDomains`). `curl` y los CLI que usen la red preguntan o fallan. WebFetch y WebSearch no se ven afectados. `gh` puede fallar la verificación TLS en macOS, y `git push` por SSH falla en macOS; esto último no afecta al proyecto, porque el push lo hace el humano.
+- No consta en la documentación y hay que comprobarlo en la prueba:
+  - que el scratchpad `/private/tmp/claude-501/…` sea el «per-user temp directory»;
+  - que los hooks PreToolUse (bash-guard) sigan ejecutándose igual antes de un comando con sandbox;
+  - que `.claude/task-scope.json` esté entre los ficheros protegidos.
+- Lo que el sandbox no cierra en ningún caso: git destructivo (`push`, `reset --hard`, `-c core.hooksPath=…`, B1), porque son comandos y no escrituras de ficheros; y las herramientas Edit/Write, que siguen dependiendo de role-guard, scope-guard y las reglas deny. bash-guard sigue siendo necesario.
+
+| Opción | Qué cierra de la deuda de TASK-044 | Riesgo | Coste |
+|---|---|---|---|
+| (a) No activarlo: bash-guard + deuda | Nada. Cada hueco nuevo de la criba exige parchear bash-guard | Las fugas de `.env` de la familia M3/W (globs, `grep -r`, intérpretes, heredocs) dependen de un filtro de texto justo cuando M2 mete claves reales en `.env`; `disableAllHooks`, `~/.zshrc` y `~/.gitconfig` siguen a una escritura de distancia | Cero ahora; mantenimiento indefinido de bash-guard |
+| (b) Activarlo en `.claude/settings.json` del proyecto, en una tarea nueva del humano (ADR-006) con su prueba | Lectura de `.env*` desde cualquier proceso con sandbox (M3, W, heredocs y código que lee `.env`); escritura de barreras del repo por canales que la criba no ve (M2: `cp -t`, `install`, `ln`, `dd`, `rsync`, `tar`, `perl -pi`, `chmod`); `task-scope.json`; barreras fuera del repo desde Bash (directorio personal no escribible, `~/.claude` protegido). Con reglas `Edit(~/.claude/**)`, `Edit(~/.zshrc)` y `Edit(~/.gitconfig)` deny, también el camino de Edit/Write | Lo excluido (`make`, `docker compose`) se ejecuta con acceso completo: hay que poner `denyWrite` en los ficheros que esos comandos ejecutan (`Makefile`, `compose.yaml`, `docker/**`) y aceptar que docker sigue alcanzando `.env`. `autoAllowBashIfSandboxed` vale `true` por defecto y quita las preguntas de los comandos con sandbox (las reglas deny de Bash siguen valiendo [SBX]): conviene fijarlo a `false` para no cambiar el flujo de aprobación sin decidirlo. Puede romper `make verify-hooks` o el scratchpad si escriben fuera de las zonas permitidas | Una tarea (owner humano) con el ADR: editar settings y probar una matriz: `make test`, `make validate` y `make verify-hooks`; `docker compose up`/`down`; `git status`/`add` y `git commit` vía /commit con pre-commit; escritura en el scratchpad; WebFetch; `cat .env` y `grep -r KEY .` bloqueados; `cat .env.example` permitido (`allowRead`, porque gana la ruta más estrecha); escritura en `.githooks/x` y `touch ~/.zshrc` bloqueadas |
+| (c) (b) más el nivel de usuario o de máquina: `~/.claude/settings.json`, o `managed-settings.json` en `/Library/Application Support/ClaudeCode/` [MGD] | Además de lo de (b): ninguna capa del repo ni del usuario puede relajar el sandbox. Una clave managed no la anula ningún fichero de usuario, de proyecto ni `--settings` [SET]. `allowUnsandboxedCommands: false` en managed hace el sandbox «admin-required» e ignora los `excludedCommands` del proyecto [REF]. Por la regla general de precedencia, un `disableAllHooks: false` en managed se impone a un `true` del usuario; no he encontrado un ejemplo documentado de ese caso concreto, así que habría que verificarlo | Configuración de máquina, fuera de git: se aplica a todos los proyectos y se pierde si se reinstala el equipo. Las exclusiones (`make`, `docker`) tienen que vivir en managed o en el usuario, no en el repo. La protección depende de que las sesiones no tengan `sudo` sin contraseña, y eso no está verificado. El nivel de usuario solo, sin managed, aporta poco sobre (b): es justo el fichero que hay que proteger | Lo de (b) más una intervención del humano con `sudo` y su documentación en README/ADR |
+
+**Recomendación del architect: (b)**, en una tarea nueva del humano (ADR-006: ningún agente edita `.claude/settings.json`), con su ADR (cambia las garantías de desarrollo que describe ADR-006). Va tras el cierre de TASK-044 y antes de TASK-010.
+- Configuración mínima:
+  - `enabled: true`, `failIfUnavailable: true`, `allowUnsandboxedCommands: false` y `autoAllowBashIfSandboxed: false`;
+  - `denyRead` para `.env` y `.env.*`, con `allowRead` para `.env.example`;
+  - `denyWrite` para `.githooks/**`, `.claude/task-scope.json`, `scripts/verify-hooks.sh` y los ficheros que ejecutan los comandos excluidos;
+  - `excludedCommands` limitado a los patrones exactos de `make` y `docker compose` que use el flujo;
+  - reglas `Edit(...)` deny para `~/.claude/**`, `~/.zshrc` y `~/.gitconfig`.
+- Motivo: cierra por el sistema operativo la mayor parte de la deuda de `.env` y de barreras, que bash-guard solo cierra por texto, y cuesta una tarea.
+- La lista exacta y los resultados de la matriz son el DoD de esa tarea. Si la prueba rompe docker, pnpm (siempre dentro del contenedor) o el scratchpad, la tarea se para y vuelve aquí; no se relaja el sandbox sobre la marcha.
+- (c) en su variante managed queda como endurecimiento posterior, solo si la prueba de (b) muestra que las exclusiones o las reglas del repo necesitan vivir fuera de él.
+- Con (b) en marcha, security puede reclasificar como defensa en profundidad los huecos de `.env` y de escritura que hoy van a deuda. Eso no cambia el DoD de TASK-044.
+
+### OD-055 — Propuesta (`PROPUESTA — pendiente de decisión humana`)
+
+Origen: TASK-044, ciclo 3, OD-N del plan (`docs/reports/TASK-044-plan.md`, CC3.19), con la opinión de security del ciclo 3. Las opciones (c) `schg` y (d) dueño `root` quedan fuera: el humano las descartó el 2026-10-28 porque exigen `sudo` en cada cambio de hook y de git.
+
+| Opción | Qué protege | Contras |
+|---|---|---|
+| (b) `chflags -R uchg` ya, con E9 | Escritura, borrado y renombrado de esas rutas por el sistema operativo mientras la marca esté puesta, desde Bash, Write/Edit, git e intérpretes (security: también `chmod`, `ln`, `install`, `dd`, `git apply`) | La quita el dueño sin `sudo` (`chflags -R nouchg`): es un freno, no una pared. Límites que cita security: `sudo`, `xargs`/`find -exec chflags`, `os.chflags` desde un intérprete, `SetFile`; `task-scope.json` queda sin proteger (lo escribe el Orchestrator). El humano la quita y la vuelve a poner en cada cambio de hook y antes de `git pull`/`checkout` que los toque. Sin target de `make` para quitarla |
+| (b′) `uchg` solo si OD-054 se retrasa | Lo mismo, pero solo como puente | Mientras tanto, la única capa sigue siendo el texto |
+| (e) Solo el sandbox (OD-054 b) con `denyWrite` en esas rutas | Bash y sus hijos por el sistema operativo; es la única capa que un proceso del usuario no puede quitar | No cubre Write/Edit (hacen falta reglas `Edit(...)` deny) ni lo que salga por `excludedCommands` |
+
+- **Architect:** (e) como capa principal y (b′): `uchg` solo si OD-054 se retrasa.
+- **Security (ciclo 3):** `uchg` ya (b), con el sandbox como capa principal.
+- Las dos posiciones coinciden en que el sandbox es la capa principal y en no usar `schg`. Solo difieren en cuándo entra `uchg`. Si entra, su puesta y su retirada van en el README, para el humano, como dos comandos.
+
+### OD-056 — Propuesta (`PROPUESTA — pendiente de decisión humana`, solo la forma)
+
+Origen: TASK-044, ciclo 3, OD-O del plan (CC3.19). **Decidido por el humano (2026-10-28):** «Ampliar OD-054 a los directorios del PATH: sí». Queda abierta la forma ((a), (b) o (c), en la fila de OD-056).
+- El hueco es doble: los hooks buscan `python3`, `jq`, `grep` y `awk` en el PATH (C6), y Write/Edit puede escribir fuera del repo. El primer directorio del PATH es del usuario (`~/.codeium/windsurf/bin`), y `/opt/homebrew/bin` admite escritura.
+- **Architect y security recomiendan (b)**: (a) en la tarea de OD-054 y C6 en la de C2/C6, con la suite completa, porque C6 obliga a repetirla (cambian `grep` y `python3`; existen `/usr/bin/python3` 3.9.6 y `/usr/bin/jq` 1.7.1-apple). (c) queda como forma de fondo si la lista de (a) resulta frágil.
+- **Añadido de security (ciclo 3)** a la configuración de OD-054: `denyRead` en `~/.config/gh`, `~/.netrc`, `~/.npmrc` y `~/.docker`; `denyWrite` en `/opt/homebrew/bin` y `~/.claude.json`.
+
+**Bloqueos.** No bloquea TASK-044, que cierra su DoD sin esta decisión. La tarea que salga de (b) o (c) debería ir antes de TASK-010, por el mismo motivo por el que TASK-044 va antes de los proveedores (decisión humana del 2026-10-26).
+
+**Fuentes** (consultadas el 2026-10-27):
+- [SBX] https://code.claude.com/docs/en/sandboxing: valores por defecto, rutas protegidas, `excludedCommands`, docker, git por SSH, límites y alcance de los subagentes.
+- [REF] https://code.claude.com/docs/en/settings-reference: entradas `sandbox.enabled`, `failIfUnavailable`, `allowUnsandboxedCommands`, `excludedCommands`, `filesystem.denyRead`/`denyWrite`, `network.allowUnixSockets`, y ámbito de `disableAllHooks`.
+- [PERM] https://code.claude.com/docs/en/permissions: alcance de las reglas deny de Read/Edit en Bash y anclas `~/`.
+- [SET] https://code.claude.com/docs/en/settings: precedencia y listas que se combinan.
+- [MGD] https://code.claude.com/docs/en/managed-settings: ruta en macOS y «What a developer can change».

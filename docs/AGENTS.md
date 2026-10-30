@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Versión | 1.1 (2026-10-20) — §4: añadida garantía de no evasión de hooks (decisión humana) |
+| Versión | 1.2 (2026-10-30) — §4: modelo de amenaza y criterio de APPROVED de las barreras de shell (decisión humana, TASK-044); §7: `shell_scan.py`. 1.1 (2026-10-20): garantía de no evasión de hooks (decisión humana) |
 | Jerarquía | ADR > SPEC > ARCHITECTURE > **AGENTS + WORKFLOW** > ROADMAP > TASKS |
 
 > Este documento describe **cómo se construye AgentLab con Claude Code**. No confundir con los agentes del producto (Manager, Researcher, Analyst, Writer, Critic, Evaluator), que viven en `packages/agents` y se describen en `TECHNICAL_SPEC.md §4`.
@@ -65,6 +65,17 @@ Elección de modelos: Opus donde el juicio importa (diseño, revisión, orquesta
 
 Si un hook bloquea algo que el flujo necesitaba, **el hook tiene razón**: se corrige el TASK PACKET o el scope, no el hook. Cambiar un hook requiere aprobación humana y un ADR si cambia una garantía.
 
+### 4.1 Modelo de amenaza de las barreras de shell (criterio de APPROVED)
+
+Aprobado por el humano el 2026-10-28 (TASK-044, CC3.20). Se aplica a `bash-guard.sh`, `shell_scan.py` y a las reglas de escritura, git y secretos.
+
+1. **Sin regresiones.** Ningún comando que bloqueaban HEAD o el ciclo anterior puede pasar después. Se comprueba con un diferencial sobre un corpus. Las excepciones que decide el humano quedan escritas y enumeradas.
+2. **Lo natural queda cerrado.** Se cierran las formas que un agente que coopera podría usar sin querer: nombres de comando, prefijos y envoltorios habituales, mayúsculas, rutas equivalentes y sustituciones habituales.
+3. **Una evasión deliberada es una infracción, no un hueco.** Montar un comando para que la barrera no lo vea (partir un subcomando en una variable, escribir un script para ejecutarlo, cambiar de intérprete) infringe la garantía de §4. No es un hueco que el ciclo deba cerrar: va a deuda MEDIUM con su riesgo escrito.
+4. **Deuda MEDIUM de barreras.** Se acepta solo con: comando de ejemplo, riesgo en una frase y por qué no es un camino natural para un agente que coopera.
+5. **Un comando que escribe sobre una barrera nunca es excepción aceptada.** Si se conoce, es un hueco abierto: se registra como deuda con tarea que lo cierra.
+6. **Falsos positivos.** Se aceptan solo con una alternativa que pase.
+
 ## 5. Ciclo de una tarea
 
 ```
@@ -123,6 +134,7 @@ Detalle, formatos de informe y TASK PACKET en `DEVELOPMENT_WORKFLOW.md`.
 │   ├── scope-guard.sh     # edición dentro del scope de la tarea
 │   ├── role-guard.sh      # edición dentro de lo que permite el rol
 │   ├── bash-guard.sh      # git/deps/secretos
+│   ├── shell_scan.py      # tokenizador de comandos de bash-guard (stdlib; python3 -I)
 │   └── lib.sh             # utilidades compartidas (parseo JSON sin jq si no está)
 └── skills/
     ├── task-packet/SKILL.md

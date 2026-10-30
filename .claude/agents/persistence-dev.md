@@ -14,6 +14,7 @@ hooks:
       hooks:
         - type: command
           command: "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/role-guard.sh persistence-dev"
+          onFailure: block
 ---
 
 # persistence-dev

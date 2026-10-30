@@ -13,7 +13,7 @@
 | Aceptación del hito | Humano, 2026-10-26, con `docs/reports/M0-closure.md` delante («Aceptada») |
 | CI | Run 39932013572 sobre `f5a1a27`, los seis jobs en success (verificación de la tarea). Pendiente el run del commit de cierre |
 | Informe del hito | [`docs/reports/M0-closure.md`](M0-closure.md) (existente; no se reescribe en este cierre) |
-| Estado resultante | **DONE**. Commit y run de CI pendientes; los añade el Orchestrator después del commit |
+| Estado resultante | **DONE**. Commit a19fb48; CI verde, run 40292752862 |
 
 Índice de informes: IMPLEMENTATION (fase 1), IMPLEMENTATION (fase 2, parada), IMPLEMENTATION (fase 2 completa), IMPLEMENTATION (bloqueo de hook), IMPLEMENTATION (ciclo de corrección 1), REVIEW (ronda 1), REVIEW (ciclo 1), IMPLEMENTATION (ciclo 2, tester), IMPLEMENTATION (ciclo 2, no aplicado), IMPLEMENTATION (ciclo 2, tester, aplicado), REVIEW (ciclo 2), SECURITY, IMPLEMENTATION (ciclo 2, redacción), REVIEW (pasada final). Los informes van íntegros y en el orden en que se emitieron.
 
@@ -732,7 +732,7 @@ Bloqueos de hooks: ninguno. No ejecuté Docker, make, Node, pnpm ni npx.
 
 ## Estado resultante
 
-- TASK-009: **DONE**. Commit y run de CI pendientes; los añade el Orchestrator tras el commit.
+- TASK-009: **DONE**. Commit a19fb48; CI verde, run 40292752862.
 - M0: cerrado el 2026-10-26, con el informe `docs/reports/M0-closure.md` aceptado por el humano el mismo día. En `ROADMAP.md`, la marca de M0 enlaza a ese informe.
 - Hito actual: M1. TASK-044 creada (owner humano, READY).
 - Desbloqueadas: TASK-040, TASK-041 y TASK-043 (dependían solo de TASK-009).

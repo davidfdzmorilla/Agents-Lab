@@ -12,6 +12,7 @@ hooks:
       hooks:
         - type: command
           command: "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/role-guard.sh docs-keeper"
+          onFailure: block
 ---
 
 # docs-keeper

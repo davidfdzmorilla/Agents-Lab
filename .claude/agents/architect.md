@@ -13,6 +13,7 @@ hooks:
       hooks:
         - type: command
           command: "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/role-guard.sh architect"
+          onFailure: block
 ---
 
 # Architect
