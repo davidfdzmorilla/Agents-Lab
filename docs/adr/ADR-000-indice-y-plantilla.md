@@ -22,6 +22,7 @@
 | ADR-010 | `tsx` también en `packages/persistence` para `db:migrate` y `db:reset` | Accepted (2026-10-20; `tsx` dev de `persistence`, amplía ADR-009 §2) |
 | ADR-011 | Imágenes `worker` y `migrate` construidas con `pnpm deploy` | Accepted (2026-10-21, con dos condiciones: lockfile congelado en cada stage de deploy; limpieza del `package.json` raíz en `migrate` como deuda LOW) |
 | ADR-012 | Build e imagen de `apps/web`: Next.js `standalone` con webpack | Accepted (2026-10-21, TASK-007; OD-039 a, OD-040 a; `web` sale con 143 bajo `SIGTERM` por diseño de Next, documentado en el DoD y no tratado como fallo; versiones por OD-042: `next 16.4.2` con excepción de seguridad, `react`/`react-dom 19.3.0` sin excepción; la imagen requiere un `tmpfs` en `.next/cache`, que provee compose, TASK-007 verificada 2026-10-21) |
+| ADR-013 | Sandbox de Claude Code como primera barrera del camino Bash (bash-guard segunda, `uchg` para lo excluido; amplía ADR-006 §4) | Proposed (2026-11-05; OD-054, OD-055, OD-056; ejecutan TASK-047 y TASK-048) |
 
 ## Reglas
 

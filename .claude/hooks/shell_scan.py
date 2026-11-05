@@ -14,11 +14,13 @@ the word $_, so the words after the "( )" are not taken for arguments of the com
 
 Any other argument exits with status 2. An exception exits with status 1. A "#" that bash and
 zsh read differently (see Ambiguous) exits with status 3. A "(" after a write redirection (see
-Redirect) exits with status 4. bash-guard.sh blocks the command on any non-zero status, so the
-scanner never fails open. Output is written once, at the end, so a
-failure never leaves a partial view behind.
+Redirect) exits with status 4. A write redirection whose target is computed when the command
+runs, or holds a barrier piece around a variable (see Dynamic), exits with status 5. A script of
+sh -c that is not one quoted string or one plain word (see Glued) exits with status 6.
+bash-guard.sh blocks the command on any non-zero status, so the scanner never fails open.
+Output is written once, at the end, so a failure never leaves a partial view behind.
 """
-import re, sys
+import posixpath, re, sys
 
 # Heredoc consumers whose body is stdin data, not shell code.
 DATA = {"cat", "tee", "python3", "python"}
@@ -36,13 +38,44 @@ SIMPLE = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "e": "\x1b", "E
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 # An option cluster that includes -c (-c, -lc, -ce, -xec ...).
 C_FLAG = re.compile(r"-[a-zA-Z]*c[a-zA-Z]*")
+# An option cluster of a shell. Each o or O in it takes the next word (-o posix, +O extglob,
+# -co posix, -oo a b). zsh also reads -oNAME: counting every o only takes words that could be
+# the script as option arguments, and those stay scanned (see Line.end_word).
+OPT_ARG = re.compile(r"[-+][A-Za-z]+")
 DQ_STR = re.compile(r'"((?:[^"\\]|\\.)*)"', re.S)
+# Pieces of a barrier path (TD-061). The literal part of a write target built around a variable
+# must not hold one. Compared in lower case, because APFS ignores case.
+BARRIER = (".claude/hooks", ".githooks", "settings", ".git/",
+           # note 2: the suffixes and names of the barrier files, and task-scope.json
+           "hooks/", "bash-guard", "shell_scan", "lib.sh", "pre-commit", "task-scope",
+           "scope-guard", "role-guard", "commit-msg")
+# The simple variables of a write target: $NAME, $1, $@, $$ ... (VAR) and ${NAME}, ${10} (BRACED).
+VAR = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]|[@*#?$!-]")
+BRACED = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-]")
+# A descriptor after >& (>&2, >& 1, >&-): not a file.
+FD = re.compile(r"(?:[0-9]+|-)(?=[ \t\r\n;&|()<>]|$)")
+# Brace expansion outside quotes: {a,b}, {1..3}.
+BRACES = re.compile(r"\{([^{}]*)\}")
 
 
 class Redirect(Exception):
     """A "(" after a write redirection (> (x), >>(x), 2>(x)): zsh reads the target as a glob, so
     the file it writes cannot be checked. A lone ">" glued to "(" after a blank is a process
     substitution, whose body is scanned as code, and does not raise."""
+
+
+class Dynamic(Exception):
+    """A write redirection whose target is computed when the command runs ($(...), `...`, {a,b}),
+    or whose literal part around a variable holds a piece of a barrier path ($X/.claude/hooks/x):
+    the file it writes cannot be checked (TD-061). A variable alone (> "$LOG") is allowed."""
+
+
+class Glued(Exception):
+    """The script of sh -c is not one quoted string or one plain word: a part glued after the
+    closing quote (bash -c "echo x > ".claude/hooks/x), an empty string before it (bash -c ""'...'),
+    or quotes or backslashes inside an unquoted word (bash -c echo' x > y', bash -c cat\\ .e\\\\nv).
+    The outer shell joins the parts and the inner shell reads them again as code, so the parts
+    the scan would read as plain words of the outer command are not checked."""
 
 
 class Ambiguous(Exception):
@@ -53,6 +86,17 @@ class Ambiguous(Exception):
 
 def neutral(text, keep_dollar):
     return "".join("_" if c in NEUTRAL or (c == "$" and not keep_dollar) else c for c in text)
+
+
+def barrier(text):
+    # True if text, read as a path in lower case (APFS ignores case), holds a piece of BARRIER.
+    # A $(...) or `...` can stand for several components, so a ".." after it may climb past
+    # its prefix (.git/$(printf "refs\057heads")/../../config): the prefix is checked too.
+    head = re.split(r"\$\(|`", text, maxsplit=1)[0]
+    paths = [posixpath.normpath("/" + text.lower())]
+    if head != text:
+        paths.append(posixpath.normpath("/" + head.lower()) + "/")
+    return any(b in p for p in paths for b in BARRIER)
 
 
 def ansi_c(text):
@@ -66,6 +110,26 @@ def ansi_c(text):
     return ESC.sub(rep, text)
 
 
+# Note 1 of TD-061: assignments in the command (X=..., X+=..., export X=..., for X in ...) whose
+# value holds a barrier piece. The value of X=... is one word with its quoted parts (WORD); the
+# words of for X in ... run to the next ; & | or newline (WORDS). Quotes and backslashes are
+# dropped. The text is read without quote state, so this can only add names; a write target
+# with one of them is blocked.
+ASSIGN = re.compile(r"(?<![^\s;&|(){}`])(?:([A-Za-z_][A-Za-z0-9_]*)\+?=|for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s)")
+WORD = re.compile(r"""(?:"[^"]*"|'[^']*'|\$\([^()]*\)|`[^`]*`|\\.|[^\s;&|"'\\]){0,4096}""")
+WORDS = re.compile(r"[^;&|\n]{0,4096}")
+
+
+def taint(src):
+    src = src.replace("\\\n", "")
+    names = set()
+    for m in ASSIGN.finditer(src):
+        value = (WORD if m.group(1) else WORDS).match(src, m.end()).group()
+        if barrier(value.replace('"', "").replace("'", "").replace("\\", "")):
+            names.add(m.group(1) or m.group(2))
+    return names
+
+
 class Line:
     """Words of the current output line, fed as the output grows. The checks that look at the
     line (heredoc consumer, sh -c) read this state instead of joining the whole output again.
@@ -76,7 +140,7 @@ class Line:
         self.reset()
 
     def reset(self):
-        self.buf, self.first, self.shell, self.c_run = [], "", False, False
+        self.buf, self.first, self.shell, self.c_run, self.arg = [], "", False, False, 0
 
     def partial(self):
         return "".join(self.buf)
@@ -96,20 +160,45 @@ class Line:
         w, self.buf = "".join(self.buf), []
         if not self.first and w not in LEAD:
             self.first = w
-        if w.startswith("-"):
-            # c_run: the options after the last plain word include a -c cluster.
+        if w.startswith(("-", "+")):
+            # c_run: the options after the last plain word include a -c cluster. +x is an option.
+            # An option word is never taken as an argument: zsh -O -c runs the script.
             self.c_run = self.c_run or C_FLAG.fullmatch(w) is not None
-        else:
+            if self.shell and OPT_ARG.fullmatch(w):
+                self.arg += w.count("o") + w.count("O")
+        elif self.arg:
+            # The argument of -o, -O, +o or +O (bash -c -o posix "..."): the script is still to come.
+            self.arg -= 1
+        elif not ("$" in w and self.shell and self.c_run):  # $E can expand to nothing
             self.c_run = False
             # =bash and BASH are bash too (zsh's "=" expansion; APFS ignores case).
             self.shell = self.shell or w.rsplit("/", 1)[-1].lstrip("=").lower() in SHELLS
 
 
+def outer_unescape(body, esc):
+    # The text that the shell reading "..." or an unquoted heredoc hands on to the inner shell.
+    # First \<newline> after an odd run of \ is removed (the lines are joined), so a $ or ` on
+    # the next line is not read as escaped (\\\<newline>$X). Then \\ is \ and \c is c for c in
+    # esc. A $ or ` after an even run of \ is expanded by the outer shell: no \ is left in front
+    # of it, or the scan would read as escaped what runs (\\$X, \\${X}, .e\\`echo n`v).
+    # (?<!\\) starts each match at the beginning of a run: without it, a long run of \ that no
+    # newline follows is retried from every \ in it (quadratic).
+    body = re.sub(r"(?<!\\)(\\+)\n", lambda m: m.group(1)[:-1] if len(m.group(1)) % 2 else m.group(0), body)
+    def run(m):
+        k, c = len(m.group(1)) // 2, m.group(2)
+        if len(m.group(1)) % 2:
+            return "\\" * k + c if c and c in esc else "\\" * (k + 1) + c
+        return "\\" * (k - k % 2 if c in ("$", "`") and c else k) + c
+    return re.sub(r"(\\+)(.?)", run, body, flags=re.S)
+
+
 class Scan:
-    def __init__(self, src):
+    def __init__(self, src, tainted=None):
         self.s, self.i, self.out = src, 0, []
         self.pending, self.pipe, self.drop = [], 0, []
         self.ln, self.fed, self.dq_open = Line(), 0, set()
+        # Note 1 of TD-061: names assigned a barrier path in the command; sub-scans share them.
+        self.tainted = taint(src) if tainted is None else tainted
 
     def emit(self, t):
         if t:
@@ -143,6 +232,9 @@ class Scan:
                 self.i += 1
                 return True
             if c == "\\":
+                ln = self.line()
+                if ln.shell and ln.c_run and n != "\n":
+                    raise Glued()  # a backslash in an unquoted -c word: bash -c cat\\ .e\\\\nv
                 self.i += 2
                 if n not in ("\n", ""):
                     self.emit("_" if n in NEUTRAL or n == "$" else n)
@@ -157,10 +249,14 @@ class Scan:
                     self.ansi()
             elif c == "$" and n == "(":
                 self.i += 2
+                state = self.opt_state(0)
                 self.emit("$_\n"); self.top(")"); self.emit("\n")
+                self.resume(state)
             elif c == "`":
                 self.i += 1
+                state = self.opt_state(0)
                 self.emit("$_\n"); self.top("`"); self.emit("\n")
+                self.resume(state)
             elif c in "()":
                 ln = self.line()
                 mark = c == "(" and bool(ln.first or ln.partial())
@@ -215,6 +311,10 @@ class Scan:
                     raise Ambiguous()
                 j = s.find("\n", self.i)  # a comment runs to the end of the line
                 self.i = len(s) if j < 0 else j
+            elif c == ">":
+                self.write_target()
+                self.i += 1
+                self.emit(c)
             else:
                 self.i += 1
                 self.emit(c)
@@ -237,6 +337,137 @@ class Scan:
             return
         raise Redirect()
 
+    def write_target(self):
+        # Called on a ">" outside quotes (TD-061). Reads the word after the redirection operator
+        # (>, >>, >|, >!, >&, &>, N>, <>) and raises Dynamic if the file it names is computed when
+        # the command runs, or if its literal part holds a barrier piece around a variable. A
+        # descriptor (>&2, >&-), a process substitution and a "( )" (see Redirect) are not read.
+        s, j = self.s, self.i + 1
+        if s[j:j + 1] == ">":
+            return  # the first ">" of ">>": the second one reads the target
+        dup = s[j:j + 1] == "&"
+        if s[j:j + 1] in ("|", "!", "&"):
+            j += 1
+        # Blanks and backslash-newline before the word (see redirect_paren).
+        while j < len(s) and (s[j] in " \t" or s.startswith("\\\n", j)):
+            j += 2 if s[j] == "\\" else 1
+        if dup and FD.match(s, j):
+            return
+        word = self.word_at(j)
+        if word is None:
+            return
+        lit, unq, names = word
+        if any("," in m.group(1) or ".." in m.group(1) for m in BRACES.finditer(unq)):
+            raise Dynamic()  # {a,b}: brace expansion
+        if names and barrier(lit):
+            raise Dynamic()
+        if self.tainted.intersection(names):
+            raise Dynamic()  # note 1: X=.claude/hooks/x; echo x > "$X"
+
+    def word_at(self, j):
+        # The shell word that starts at j, as (literal text, text outside quotes, variable names).
+        # A quoted or escaped character is literal, and "_" in the text outside quotes; a
+        # variable adds its name and no text. None if a quote or ${ is not closed: then the
+        # shell runs nothing.
+        s, lit, unq, names = self.s, [], [], []
+        while j < len(s) and s[j] not in WORD_END and s[j] not in "<>":
+            c, n = s[j], s[j + 1:j + 2]
+            if c == "\\":
+                if n != "\n":
+                    lit.append(n)
+                    unq.append("_")
+                j += 2
+            elif c == "'":
+                k = s.find("'", j + 1)
+                if k < 0:
+                    return None
+                lit.append(s[j + 1:k])
+                unq.append("_")
+                j = k + 1
+            elif c == "$" and n == "'":
+                # $'...' is decoded, as sanitize does: its text is literal.
+                k = j + 2
+                while k < len(s) and s[k] != "'":
+                    k += 2 if s[k] == "\\" else 1
+                if k >= len(s):
+                    return None
+                lit.append(ansi_c(s[j + 2:k]))
+                unq.append("_")
+                j = k + 1
+            elif c == '"' or (c == "$" and n == '"'):
+                j += 1 if c == '"' else 2
+                while j < len(s) and s[j] != '"':
+                    if s[j] == "\\" and s[j + 1:j + 2] in ("$", "`", '"', "\\", "\n"):
+                        lit.append("" if s[j + 1] == "\n" else s[j + 1])
+                        j += 2
+                    elif s[j] in "$`":
+                        j = self.expansion(j, lit, names)
+                        if j < 0:
+                            return None
+                    else:
+                        lit.append(s[j])
+                        j += 1
+                if j >= len(s):
+                    return None
+                unq.append("_")
+                j += 1
+            elif c in "$`":
+                j = self.expansion(j, lit, names)
+                if j < 0:
+                    return None
+            else:
+                if c in "*?[":
+                    raise Dynamic()  # note 4: a glob, which zsh expands in a redirection (MULTIOS)
+                lit.append(c)
+                unq.append(c)
+                j += 1
+        if s[j:j + 1] == "(" and (names or "".join(lit) not in ("", "=")):
+            raise Dynamic()  # zsh glob group in the middle of the target: .claude/hook(s)/x
+        return "".join(lit), "".join(unq), names
+
+    def expansion(self, j, lit, names):
+        # The expansion at s[j] ("$" or "`") inside a write target; returns where it ends, or -1
+        # if a ${ is not closed. `...`, $(...), $((...)) and $[...] are computed when the
+        # command runs. $NAME, $1, $@ ... and ${...} add a name; a lone "$" is literal.
+        s, n = self.s, self.s[j + 1:j + 2]
+        if s[j] == "`" or n in ("(", "["):
+            raise Dynamic()
+        m = VAR.match(s, j + 1)
+        if m:
+            if re.match(r":[A-Za-z&]", s[m.end():m.end() + 2]):
+                raise Dynamic()  # zsh modifier: $X:h, $X:s/a/b/
+            names.append(m.group())
+            return m.end()
+        if n == "{":
+            k = s.find("}", j + 2)
+            if k < 0:
+                return -1
+            body = s[j + 2:k]
+            if not BRACED.fullmatch(body):
+                # note 3: ${X:-...}, ${X#...}, ${X/...}, ${(L)X}: not a simple variable
+                raise Dynamic()
+            names.append(body)
+            return k + 1
+        if n in ("=", "~", "^", "+"):
+            raise Dynamic()  # note 3: zsh $=X, $~X (the value is a glob), $^X, $+X
+        lit.append("$")
+        return j + 1
+
+    def opt_state(self, used):
+        # A shell line that waits for an option argument (bash -c -o 'posix' "...", bash -o
+        # $(printf posix) -c "..."): its state, with used arguments taken, or None. The output of
+        # the argument ends the line; resume() puts the state back, so the -c and the script
+        # after it are still read. A $(...) does not take one: the rest of its word does.
+        ln = self.line()
+        if not (ln.shell and (ln.arg or not used)):
+            return None
+        return ln.first, ln.shell, ln.c_run, max(ln.arg - used, 0)
+
+    def resume(self, state):
+        if state:
+            ln = self.line()
+            ln.first, ln.shell, ln.c_run, ln.arg = state
+
     def keep_empty_word(self, before, mark_o):
         # "" or '' as a whole word is still an argument (grep "" .env): leave a placeholder.
         after = self.s[self.i:self.i + 1]
@@ -247,8 +478,10 @@ class Scan:
         # The string after `sh -c`, `bash -lc`, `bash -ce`, `bash -c --` ... is code: scan it
         # instead of hiding it. Also for $'...', decoded first.
         ln = self.line()
-        if ln.buf or not (ln.shell and ln.c_run):
+        if not (ln.shell and ln.c_run):
             return False
+        if ln.buf:
+            raise Glued()  # a quote inside an unquoted -c word: bash -c echo' x > y'
         s = self.s
         if s.startswith("$'", self.i):
             j = self.i + 2
@@ -267,11 +500,15 @@ class Scan:
             if not m:
                 return False
             j = m.end() - 1
-            body = re.sub(r'\\([$`"\\\n])', r"\1", m.group(1))
-        sub = Scan(body)
+            body = outer_unescape(m.group(1), '$`"\n')
+        if j + 1 < len(s) and s[j + 1] not in WORD_END and s[j + 1] not in "<>":
+            raise Glued()  # a part glued after the closing quote: bash -c "echo x > "$X
+        sub = Scan(body, self.tainted | taint(body))
         sub.top()
+        state = self.opt_state(1)  # an option argument in quotes: bash -c -o 'posix' "..."
         self.emit("\n" + "".join(sub.out) + "\n")
         self.i = j + 1
+        self.resume(state)
         return True
 
     def single(self):
@@ -385,11 +622,13 @@ class Scan:
                 return
             body = s[start:body_end]
             if h["consumer"] not in DATA or h["piped"]:
-                sub = Scan(body)
+                if not h["quoted"]:  # the shell that reads it gets \$ as $ (like "...")
+                    body = outer_unescape(body, '$`\n')
+                sub = Scan(body, self.tainted | taint(body))
                 sub.top()
                 self.emit("\n" + "".join(sub.out) + "\n")
             elif not h["quoted"]:  # expanded body: keep its command substitutions
-                sub = Scan(body)
+                sub = Scan(body, self.tainted | taint(body))
                 sub.double(None, False)
                 self.emit("\n" + "".join(sub.out) + "\n")
                 if "$(" not in body and "`" not in body:
@@ -432,6 +671,10 @@ def main(argv):
         out = code_view(src) if argv[1] == "code" else sanitize(src)[0]
     except Redirect:
         return 4
+    except Dynamic:
+        return 5
+    except Glued:
+        return 6
     except Ambiguous:
         sys.stderr.write("ambiguous '#' after '(' or ')', or inside '( )'\n")
         return 3

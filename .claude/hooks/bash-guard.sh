@@ -30,12 +30,16 @@ flat="$(printf '%s' "$cmd" | tr '\n' ' ' | tr -s ' ')"
 #   code       the original command without the bodies of data heredocs (cat/tee/python3/python
 #              with no pipe after them). The git rules use it.
 # When in doubt no text is hidden: an unclosed quote or heredoc makes the rest read as code.
+# A write redirection whose target cannot be checked (TD-061: $(…), `…`, {a,b}, or a barrier
+# piece around a variable) makes the scanner exit with status 5.
 # Fail-closed: without shell_scan.py, without python3, or if the scanner fails, nothing runs.
 scan_py="$(dirname "$0")/shell_scan.py"
 [ -f "$scan_py" ] || block "falta el saneador $scan_py; sin él no se evalúa ningún comando"
 sanitized="$(printf '%s' "$cmd" | python3 -I "$scan_py" sanitize 2>/dev/null)" || {
   rc=$?
   [ $rc = 4 ] && block "( tras una redirección de escritura (> (x), >>(x), 2>(x)…): zsh toma el destino como un patrón y no se puede revisar. Escribe la ruta literal; >(…) con un blanco delante sí se admite"
+  [ $rc = 5 ] && block "destino de escritura que se calcula al ejecutar (sustitución, llaves, expansión o comodín) o que monta una barrera alrededor de una variable: no se puede revisar; escribe la ruta literal (una variable sola, > \"\$LOG\", sí se admite)"
+  [ $rc = 6 ] && block "el script de sh -c / bash -c no es una sola cadena: hay texto pegado tras la comilla de cierre, una cadena vacía delante o comillas o \\ en una palabra sin comillas. Escribe todo el script dentro de una sola cadena entre comillas"
   [ $rc = 3 ] && block "# pegado a ( o ), o dentro de ( ), fuera de comillas: bash lo lee como comentario y zsh, en un patrón, como texto. Quítalo o ponlo entre comillas"
   block "el saneador shell_scan.py falló (sanitize) o falta python3; el comando no se evalúa"
 }
@@ -193,14 +197,22 @@ done <<< "$gh_api"
 # Each segment of the command (one line of $sanitized) is checked on its own. A $(…) or `…` leaves
 # the word $_ in the segment, which counts as a package that is not allowed, also when it is glued
 # to the subcommand (pnpm add$(:) lodash: in zsh it is pnpm add lodash; C8).
-deps_re='^[[:space:]]*(pnpm|npm|yarn|bun)([[:space:]]+(-[^[:space:]]*|--filter[[:space:]]+[^[:space:]]+))*[[:space:]]+(add|i|install)((\$_)*)([[:space:]]|$)'
+# Options before the subcommand may take a value (N-3): pnpm -F <pkg>, --filter <pkg>, -C <dir>,
+# --dir <dir>, --prefix <dir>, npm -w <ws>, yarn --cwd <dir>, and yarn workspace <ws>. Any option
+# may take the next word that does not start with "-" as its value: the line matches if one way
+# of reading its words reaches add, i or install, so pnpm -w add x is still add.
+# The packages are read from the first add, i or install after the manager (the awk below), not
+# from the end of that match: the longest reading may take add as the value of an option and a
+# package named i, add or install as the subcommand (pnpm -w add i); the first one never sees
+# fewer packages.
+deps_re='^[[:space:]]*(pnpm|npm|yarn|bun)([[:space:]]+(-[^[:space:]]*|-[^[:space:]]*[[:space:]]+[^-[:space:]][^[:space:]]*|workspace[[:space:]]+[^[:space:]]+))*[[:space:]]+(add|i|install)((\$_)*)([[:space:]]|$)'
 segs="$sanitized"
 printf '%s\n' "$segs" | while IFS= read -r seg; do
   [[ $seg =~ $deps_re ]] || continue
-  glued="${BASH_REMATCH[5]}"
   deps_allowed="$(scope_get deps_allowed)"
   # Flags and every redirection (2>&1, > file, < file) with its target are dropped.
-  pkgs="${glued:+\$_ }$(printf '%s' "$seg" | sed -E "s/$deps_re//" | sed -E 's/[0-9]*[<>]&?[0-9]*[[:space:]]*[^[:space:]]*//g' | tr ' ' '\n' | grep -v '^-' | grep -v '^$' | sed -E 's/(.)@[^@/]+$/\1/')"
+  pkgs="$(printf '%s\n' "$seg" | awk '{ for (k = 2; k <= NF; k++) if ($k ~ /^(add|i|install)(\$_)*$/) break
+    s = ($k ~ /\$_$/) ? "$_" : ""; for (k++; k <= NF; k++) s = s " " $k; print s }' | sed -E 's/[0-9]*[<>]&?[0-9]*[[:space:]]*[^[:space:]]*//g' | tr ' ' '\n' | grep -v '^-' | grep -v '^$' | sed -E 's/(.)@[^@/]+$/\1/')"
   for name in $pkgs; do
     if ! printf '%s\n' "$deps_allowed" | grep -Fxq "$name"; then
       printf 'BLOCKED by %s: dependencia %s no autorizada en el TASK PACKET (deps_allowed). Repórtala en el informe; el humano decide.\n' "$HOOK_NAME" "'$name'" >&2
@@ -455,6 +467,17 @@ fi
 # environment. As an argument of another command (grep -i env, ls env/) it means nothing.
 env_dump=0
 segs3="$san_nm"
+# The same lines without their redirections (env > f, env 2>&1, export -p >&2): a redirection
+# does not stop a dump, so the rules below also see the line without it. Only the lines that
+# change are added, and this only adds lines. A process substitution (<(…), >(…), left as <$_
+# or >$_ after a blank) is an operand, not a redirection: it becomes the word _ps_, so
+# printenv <(:) NAME stays printenv with an operand.
+segs3="$segs3"$'\n'"$(printf '%s\n' "$sanitized" | awk '{
+  o = $0; sub(/\$_$/, "", o); sub(/[[:space:]]+$/, "", o); n = $0
+  if (n ~ /(^|[[:space:]])[<>]\$_$/) sub(/[<>]\$_$/, "_ps_", n)
+  sub(/\$_$/, "", n); gsub(/[0-9]*(&>>?|[<>][>|!&]?)[[:space:]]*[^[:space:]]*/, " ", n); sub(/[[:space:]]+$/, "", n)
+  if (n != o) print n
+}')"
 while IFS= read -r seg; do
   seg="${seg#"${seg%%[![:space:]]*}"}"
   case "$seg" in
@@ -514,8 +537,12 @@ if printf '%s' "$flat" | grep -Eq '\$\{?!?[A-Za-z0-9_]*(API_KEY|SECRET|TOKEN|PAS
   block "no se expanden variables de entorno con secretos"
 fi
 # Indirect expansion (${!V}) or eval: they can build the name of a variable piece by piece and
-# get around the rule above. They have no legitimate use here.
-if printf '%s' "$flat" | grep -Eq '\$\{![A-Za-z_]|(^|[;&| ])eval[[:space:]]'; then
+# get around the rule above. They have no legitimate use here. eval is also looked for as the
+# command of each segment ($san_nm, with the lines of C1), where e""val, \eval, (eval …),
+# $(eval …), bash -c 'eval …' and a heredoc that runs show it. Before it there may be the options
+# that time -p leaves, coproc, and zsh's repeat N and [[ … ]].
+if printf '%s' "$flat" | grep -Eq '\$\{![A-Za-z_]|(^|[;&| ])eval[[:space:]]' \
+  || printf '%s\n' "$san_nm" | grep -Eq '^((-[^[:space:]]*|coproc|repeat[[:space:]]+[^[:space:]]+|\[\[.*\]\])[[:space:]]+)*eval([[:space:]]|$)'; then
   block "expansión indirecta o eval no permitidos (podrían exponer secretos por nombre compuesto)"
 fi
 
