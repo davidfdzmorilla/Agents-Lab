@@ -35,13 +35,19 @@ COMMENT_AFTER = set(" \t\n;&|<>")
 PARENS = set("()")
 ESC = re.compile(r"\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|.)", re.S)
 SIMPLE = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "v": "\v"}
-SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
-# An option cluster that includes -c (-c, -lc, -ce, -xec ...).
-C_FLAG = re.compile(r"-[a-zA-Z]*c[a-zA-Z]*")
+SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh"}
+# An option cluster that includes -c (-c, -lc, -ce, -xec ...). zsh also takes digits (-1c, -c1).
+C_FLAG = re.compile(r"-[a-zA-Z0-9]*c[a-zA-Z0-9]*")
 # An option cluster of a shell. Each o or O in it takes the next word (-o posix, +O extglob,
-# -co posix, -oo a b). zsh also reads -oNAME: counting every o only takes words that could be
-# the script as option arguments, and those stay scanned (see Line.end_word).
-OPT_ARG = re.compile(r"[-+][A-Za-z]+")
+# -co posix, -oo a b), and so do ksh's T and R (-cT 1, -c -T 0, -R file). zsh also reads -oNAME:
+# counting every one only takes words that could be the script as option arguments, and those
+# stay scanned (see Line.end_word).
+OPT_ARG = re.compile(r"[-+][A-Za-z0-9]+")
+# An option word that is written out: letters and digits, or a long option (--norc, --rcfile=f).
+# Anything else in it (-[c], -?, -c(N), -c#, -<->c, -$x) is expanded when the command runs.
+LIT_OPT = re.compile(r"[-+][A-Za-z0-9]*|--(?:[A-Za-z0-9][A-Za-z0-9-]*(?:=.*)?)?")
+# A redirection word (> f, >>f, 2>/dev/null, &>f, >&2, <in, <<<): it and its file are not arguments.
+REDIR = re.compile(r"[0-9]*(?:&>>?|<<<|<>|<&|>&|>>|>\||>!|<|>)")
 DQ_STR = re.compile(r'"((?:[^"\\]|\\.)*)"', re.S)
 # Pieces of a barrier path (TD-061). The literal part of a write target built around a variable
 # must not hold one. Compared in lower case, because APFS ignores case.
@@ -73,7 +79,8 @@ class Dynamic(Exception):
 class Glued(Exception):
     """The script of sh -c is not one quoted string or one plain word: a part glued after the
     closing quote (bash -c "echo x > ".claude/hooks/x), an empty string before it (bash -c ""'...'),
-    or quotes or backslashes inside an unquoted word (bash -c echo' x > y', bash -c cat\\ .e\\\\nv).
+    or quotes or backslashes inside an unquoted word (bash -c echo' x > y', bash -c cat\\ .e\\\\nv),
+    also in a word with braces that can expand to the -c and its script (bash {-c,"echo x > y"}).
     The outer shell joins the parts and the inner shell reads them again as code, so the parts
     the scan would read as plain words of the outer command are not checked."""
 
@@ -140,7 +147,8 @@ class Line:
         self.reset()
 
     def reset(self):
-        self.buf, self.first, self.shell, self.c_run, self.arg = [], "", False, False, 0
+        self.buf, self.first, self.shell, self.c_run, self.arg, self.target = [], "", False, False, 0, False
+        self.dyn_c = False
 
     def partial(self):
         return "".join(self.buf)
@@ -160,19 +168,38 @@ class Line:
         w, self.buf = "".join(self.buf), []
         if not self.first and w not in LEAD:
             self.first = w
+        if self.shell and (self.target or REDIR.match(w)):
+            # A redirection and its file are not arguments: bash -c >/tmp/o '...' and bash -c 2>
+            # /dev/null '...' still run the script, so they keep c_run.
+            self.target = not self.target and REDIR.fullmatch(w) is not None
+            return
+        # A word of a shell line is computed when the command runs if it holds $ (a variable, or
+        # the mark that Scan.mark leaves for $( ), `...`, an unquoted glob, a leading ~ or a zsh
+        # "( )"), an unquoted { other than a literal {} (find -exec bash {} \;), or, in an option
+        # word, anything but letters and digits (see LIT_OPT). It can be or hold a -c cluster
+        # (-e${x}c, -{e,c}, $(echo -c), -$(echo c), -[c], ~n with hash -d n=-c), so it counts as
+        # one and the next string is scanned as code.
+        dyn = self.shell and ("$" in w or ("{" in w and w != "{}") or (w[0] in "-+" and not LIT_OPT.fullmatch(w)))
+        # dyn_c: a computed word can also hold the options that take the next words (-co, -oc,
+        # -{c,o}, ~ with HOME=-co), and how many is not known. From it on, no plain word of the
+        # line turns c_run off: bash $(echo -co) posix '...' and bash -co$(:) posix '...'.
+        self.dyn_c = self.dyn_c or dyn
         if w.startswith(("-", "+")):
             # c_run: the options after the last plain word include a -c cluster. +x is an option.
             # An option word is never taken as an argument: zsh -O -c runs the script.
-            self.c_run = self.c_run or C_FLAG.fullmatch(w) is not None
+            self.c_run = self.c_run or dyn or C_FLAG.fullmatch(w) is not None
             if self.shell and OPT_ARG.fullmatch(w):
-                self.arg += w.count("o") + w.count("O")
+                self.arg += w.count("o") + w.count("O") + w.count("T") + w.count("R")
         elif self.arg:
             # The argument of -o, -O, +o or +O (bash -c -o posix "..."): the script is still to come.
+            # A computed one can hold the -c too (bash -o $x "..." with x="posix -c").
             self.arg -= 1
-        elif not ("$" in w and self.shell and self.c_run):  # $E can expand to nothing
-            self.c_run = False
-            # =bash and BASH are bash too (zsh's "=" expansion; APFS ignores case).
-            self.shell = self.shell or w.rsplit("/", 1)[-1].lstrip("=").lower() in SHELLS
+            self.c_run = self.c_run or dyn
+        elif not (("$" in w or self.dyn_c) and self.shell and self.c_run):  # $E can expand to nothing
+            self.c_run = dyn
+            # =bash and BASH are bash too (zsh's "=" expansion; APFS ignores case), and so is {bash:
+            # zsh runs {bash -c '...'} with the brace glued.
+            self.shell = self.shell or w.lstrip("{").rsplit("/", 1)[-1].lstrip("=").lower() in SHELLS
 
 
 def outer_unescape(body, esc):
@@ -222,7 +249,7 @@ class Scan:
         return "" if w in LEAD else w.rsplit("/", 1)[-1]
 
     def top(self, close=None):
-        s, depth = self.s, 0
+        s, depth, groups = self.s, 0, []
         while self.i < len(s):
             c, n = s[self.i], s[self.i + 1:self.i + 2]
             if close == "`" and c == "`":
@@ -233,8 +260,8 @@ class Scan:
                 return True
             if c == "\\":
                 ln = self.line()
-                if ln.shell and ln.c_run and n != "\n":
-                    raise Glued()  # a backslash in an unquoted -c word: bash -c cat\\ .e\\\\nv
+                if ln.shell and (ln.c_run or "{" in ln.buf) and n != "\n":
+                    raise Glued()  # a backslash in an unquoted -c word: bash -c cat\\ .e\\\\nv, bash {-c,echo\\ x}
                 self.i += 2
                 if n not in ("\n", ""):
                     self.emit("_" if n in NEUTRAL or n == "$" else n)
@@ -251,20 +278,29 @@ class Scan:
                 self.i += 2
                 state = self.opt_state(0)
                 self.emit("$_\n"); self.top(")"); self.emit("\n")
-                self.resume(state)
+                self.resume(state, True)
             elif c == "`":
                 self.i += 1
                 state = self.opt_state(0)
                 self.emit("$_\n"); self.top("`"); self.emit("\n")
-                self.resume(state)
+                self.resume(state, True)
             elif c in "()":
                 ln = self.line()
                 mark = c == "(" and bool(ln.first or ln.partial())
                 if mark:
                     self.redirect_paren()
+                # A "(" after a word of a shell line (a zsh glob group or qualifier, -c(N), or <( ),
+                # >( ), =( )) is computed too: the line state comes back at its ")", marked.
+                group = self.opt_state(0) if mark else None
+                if c == "(":
+                    groups.append(group)
+                elif groups:
+                    group = groups.pop()
                 depth += 1 if c == "(" else (-1 if depth else 0)
                 self.i += 1
                 self.emit("$_\n" if mark else "\n")
+                if c == ")":
+                    self.resume(group, True)
             elif c == "\n":
                 self.i += 1
                 self.emit("\n"); self.pipe += 1
@@ -316,9 +352,18 @@ class Scan:
                 self.i += 1
                 self.emit(c)
             else:
+                if c in "*?[^" or (c == "~" and (self.i == 0 or s[self.i - 1] in WORD_END)):
+                    self.mark()  # a glob or a leading ~ (~n, ~+, ~-, ~ with HOME=-c) can be -c
                 self.i += 1
                 self.emit(c)
         return False
+
+    def mark(self):
+        # The word in progress on a shell line is computed when the command runs: a "$" in its
+        # line state (not in the output) makes it count as one (see Line.end_word).
+        ln = self.line()
+        if ln.shell:
+            ln.buf.append("$")
 
     def redirect_paren(self):
         # Called on a "(" that follows a word. Looks back over blanks and redirection operators.
@@ -457,16 +502,23 @@ class Scan:
         # A shell line that waits for an option argument (bash -c -o 'posix' "...", bash -o
         # $(printf posix) -c "..."): its state, with used arguments taken, or None. The output of
         # the argument ends the line; resume() puts the state back, so the -c and the script
-        # after it are still read. A $(...) does not take one: the rest of its word does.
+        # after it are still read. A $(...) does not take one: the rest of its word does. The
+        # word in progress is kept too (TD-111): -$(:)c, -c$(:) and -e"$(:)" are still options.
+        # After a computed word (dyn_c) a string can be an option argument too, so the state is
+        # kept: bash $(echo -co) 'posix' '...'.
         ln = self.line()
-        if not (ln.shell and (ln.arg or not used)):
+        if not (ln.shell and (ln.arg or not used or ln.dyn_c)):
             return None
-        return ln.first, ln.shell, ln.c_run, max(ln.arg - used, 0)
+        return ln.first, ln.shell, ln.c_run, max(ln.arg - used, 0), list(ln.buf), ln.target, ln.dyn_c
 
-    def resume(self, state):
+    def resume(self, state, computed=False):
+        # computed: the state comes back after a $( ), `...` or "( )", whose output is part of the
+        # word in progress, so the word is marked (see mark): bash $(echo -c) '...'.
         if state:
             ln = self.line()
-            ln.first, ln.shell, ln.c_run, ln.arg = state
+            ln.first, ln.shell, ln.c_run, ln.arg, ln.buf, ln.target, ln.dyn_c = state
+            if computed:
+                ln.buf.append("$")
 
     def keep_empty_word(self, before, mark_o):
         # "" or '' as a whole word is still an argument (grep "" .env): leave a placeholder.
@@ -478,7 +530,9 @@ class Scan:
         # The string after `sh -c`, `bash -lc`, `bash -ce`, `bash -c --` ... is code: scan it
         # instead of hiding it. Also for $'...', decoded first.
         ln = self.line()
-        if not (ln.shell and ln.c_run):
+        if ln.shell and "{" in ln.buf:
+            raise Glued()  # a quote inside an unquoted word with braces: bash {-c,"echo x > y"}
+        if not (ln.shell and ln.c_run) or ln.target:  # bash -c > "/tmp/o" '...': the file, not the script
             return False
         if ln.buf:
             raise Glued()  # a quote inside an unquoted -c word: bash -c echo' x > y'
@@ -567,10 +621,14 @@ class Scan:
                     self.emit("_")
             elif c == "$" and n == "(":
                 self.i += 2
+                state = self.opt_state(0)  # bash -o "$(printf posix)" -c "...": see top()
                 self.emit("$_\n" if text else "\n"); self.top(")"); self.emit("\n")
+                self.resume(state, True)
             elif c == "`":
                 self.i += 1
+                state = self.opt_state(0)
                 self.emit("$_\n" if text else "\n"); self.top("`"); self.emit("\n")
+                self.resume(state, True)
             else:
                 self.i += 1
                 if text:

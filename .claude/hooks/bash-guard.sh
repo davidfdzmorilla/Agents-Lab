@@ -1,4 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# C6: fixed PATH, so a python3, jq, awk... planted earlier in the user's PATH never runs here.
+export PATH=/usr/bin:/bin
+# /usr/bin/python3 and /usr/bin/git are xcrun shims: no lookup cache, which the user can write.
+export xcrun_nocache=1
 # PreToolUse (Bash), global. Enforces the guarantees of docs/AGENTS.md §4 on shell commands:
 #   - git push/merge/rebase/reset --hard/checkout --/clean: never from Claude Code
 #   - git commit: only with commit_allowed=true in task-scope.json, no --no-verify, no AI attribution
@@ -55,6 +59,37 @@ code_flat="$(printf '%s' "$code" | tr '\n\t' '  ' | tr -s ' ')"
 san_nm="$(printf '%s\n' "$sanitized" | sed 's/\$_$//')"
 [ "$(printf '%s\n' "$sanitized" | wc -l)" -le 400 ] \
   || block "comando de más de 400 segmentos: escríbelo con Write en un fichero del scratchpad y ejecútalo desde ahí"
+# Redirections among the words (CC3). A redirection, glued or not, can hide the command or its
+# arguments: chflags>/dev/null nouchg x runs chflags, repeat 1 printenv>/tmp/o runs printenv (not
+# a command named o) and git 2>/dev/null push runs git push. Each line with one is added again
+# without its redirections and their files, before any rule reads it. A word that is only digits
+# (2>, 10>) is a descriptor and goes with it; json2> is the word json2 and a redirection. A {name}
+# glued to it stays: zsh runs {f}>/tmp/o as the group {f}. A process substitution (<(…), >(…), left
+# as <$_ or >$_ after a blank) is an operand, as in $segs3: it becomes the word _ps_. The leading
+# blank that a first redirection leaves is removed (cn_awk reads the first word). The redirection
+# targets are still checked on the original lines (S16). This only adds lines, so it only adds
+# matches.
+san_rd="$(printf '%s\n' "$sanitized" | sed -E 's/(^|[[:space:]])[<>]\$_$/\1_ps_/' | sed -nE 's/(^|[[:space:]])[0-9]+(&?[<>])/\1\2/g; s/(&>>?|<<<|<>|<&|>&|>>|>[|!]?|<)[[:space:]]*[^[:space:]<>&]*/ /gp' | sed -E 's/^[[:space:]]+//')"
+if [ -n "$san_rd" ]; then
+  sanitized="$sanitized"$'\n'"$san_rd"
+  san_nm="$(printf '%s\n' "$sanitized" | sed 's/\$_$//')"
+fi
+# Braces glued to the words (CC3). zsh runs {cmd args} and { cmd args}: a "{" glued to the start of
+# the first word opens the group, and a "}" glued to the end of a word (the last one, or the one
+# before a redirection) closes it. Each line of $sanitized with one of them is added again without
+# them, before any rule reads it, so every rule sees the plain name and arguments: {cat .env},
+# {git push} and {echo x > .claude/task-scope.json} are cat .env, git push and echo x > ….
+# After a glued "}", zsh goes on with a reserved word (always, then, else, elif, do, fi, done,
+# esac) and a command starts in the middle of the line: {true} always {cmd}, if {true} then cmd,
+# if false; then {true} else cmd. Any other word there is a syntax error. A redirection can come
+# between the "}" and the word ({printenv}>/tmp/o fi, {export -p} 2>/dev/null fi). A line with a
+# "}" is split before each of those words (after a blank or a tab), and each piece is added
+# without its leading "{" and its glued "}". This only adds lines, so it only adds matches.
+san_br="$(printf '%s\n' "$sanitized" | awk '{ o = $0; s = $0 " "; gsub(/\t/, " ", s); gsub(/[}]+</, "<", s); gsub(/[}]+>/, ">", s); gsub(/[}]+&/, "\\&", s); if (o ~ /[}]/) gsub(/ +(always|then|else|elif|do|fi|done|esac) /, "\001&", s); n = split(s, part, /\001 +/); for (k = 1; k <= n; k++) { $0 = part[k] " "; sub(/^ *[{]+/, ""); gsub(/[}]+ /, " "); if (NF) { $1 = $1; if ($0 != o) print } } }')"
+if [ -n "$san_br" ]; then
+  sanitized="$sanitized"$'\n'"$san_br"
+  san_nm="$(printf '%s\n' "$sanitized" | sed 's/\$_$//')"
+fi
 # Command name (C1). A line of $sanitized whose command is written in another way is added again
 # with the plain name: without assignments (LC_ALL=C sed), leading redirections, the wrappers
 # command, builtin, exec, nohup, nice, env, time, noglob, nocorrect and "-" with their options,
@@ -62,16 +97,29 @@ san_nm="$(printf '%s\n' "$sanitized" | sed 's/\$_$//')"
 # case and GIT runs git. Only the name is lowered: options keep their case (-C/-c, -D). Every rule
 # that reads $sanitized or $san_nm sees both lines, so this only adds matches. command -v/-V does
 # not run the command and env -S splits a string: those lines are not rewritten.
+# Also dropped (TD-112, TD-113, TD-087): zsh's coproc and repeat N, a [[ … ]] up to its ]] (the
+# short if/while/until [[ … ]] cmd of zsh), the reserved words !, if, while and until, the words do,
+# then, else, elif and always (zsh reads repeat 1 do cmd, [[ 1 ]] then cmd and {…} always {cmd}
+# without a ";"), and any word
+# that starts with "-" (the options that time -p leaves). zsh also runs {cmd} and { cmd}, with the
+# braces glued: a "{" glued to the start of the line (not {a,b} or {1..3}) and a "}" glued to the
+# end of the command name are removed. A line whose command is not known and has
+# a ]] later is read again after it: a $( ) in the test ([[ -z $(:) ]] printenv) splits the line
+# before the ]]. Each line gets at most 16 rounds: a line that still has a prefix after them is
+# blocked (TD-093), instead of passing the command after it.
 cn_awk='function drop() { sub(/^[^ ]+ */, "") }
 {
   last = $0; stop = 0; abort = 0
   for (n = 0; NF && n < 16 && !stop; n++) {
     if ($1 ~ /^[A-Za-z_][A-Za-z0-9_]*\+?=/) { drop(); continue }
     if ($1 ~ /^[0-9]*(<|>|&>)/) { if ($1 ~ /^[0-9]*(<|>|&>)[<>&|!]*$/) drop(); drop(); continue }
-    w = tolower($1); sub(/^=/, "", w); sub(/^.*\//, "", w)
+    if ($1 ~ /^[{]./ && $1 !~ /,|[.][.]/) { sub(/^[{]/, ""); continue }
+    w = tolower($1); sub(/^=/, "", w); sub(/^.*\//, "", w); if (w ~ /^[a-z0-9_.+-]+[}]+$/) sub(/[}]+$/, "", w)
     if (w != $1) $1 = w
     if ($0 != last) { print; last = $0 }
-    if (w == "builtin" || w == "nohup" || w == "noglob" || w == "nocorrect" || w == "-") { drop(); continue }
+    if (w == "builtin" || w == "nohup" || w == "noglob" || w == "nocorrect" || w == "coproc" || w == "!" || w == "if" || w == "while" || w == "until" || w == "do" || w == "then" || w == "else" || w == "elif" || w == "always" || w ~ /^-/) { drop(); continue }
+    if (w == "repeat") { drop(); drop(); continue }
+    if (w == "[[") { if (match($0, / \]\]( |$)/)) $0 = substr($0, RSTART + RLENGTH); else $0 = ""; continue }
     if (w == "command" || w == "exec" || w == "nice" || w == "env" || w == "time") {
       drop()
       while (NF && $1 ~ /^-/ && !abort) {
@@ -82,11 +130,14 @@ cn_awk='function drop() { sub(/^[^ ]+ */, "") }
       if (abort) break
       continue
     }
+    if (match($0, /(^| )\]\] /)) { $0 = substr($0, RSTART + RLENGTH); continue }
     stop = 1
   }
+  if (!stop && !abort && NF) exit 3
   if (!abort && NF && $0 != last) print
 }'
-san_cn="$(printf '%s\n' "$sanitized" | awk "$cn_awk")"
+san_cn="$(printf '%s\n' "$sanitized" | awk "$cn_awk")" \
+  || block "más de 16 prefijos o envoltorios (nohup, env, builtin, repeat, asignaciones…) delante de una orden: quita los que sobran"
 if [ -n "$san_cn" ]; then
   sanitized="$sanitized"$'\n'"$san_cn"
   san_nm="$(printf '%s\n' "$sanitized" | sed 's/\$_$//')"
@@ -112,6 +163,21 @@ fi
 if printf '%s\n' "$git_view" | grep -Eq "${gsep}git[[:space:]]+reset[[:space:]]+--hard|${gsep}git[[:space:]]+checkout[[:space:]]+--[[:space:]]|${gsep}git[[:space:]]+restore[[:space:]]|${gsep}git[[:space:]]+clean[[:space:]]+-[a-zA-Z]*f|${gsep}git[[:space:]]+branch[[:space:]]+-[dD]|${gsep}git[[:space:]]+stash[[:space:]]+(drop|clear)"; then
   block "operaciones git que descartan trabajo están prohibidas desde Claude Code"
 fi
+# TD-089: git that moves a branch, rewrites the index or drops changes in other ways. These rules
+# read only the sanitized segments ($san_git): there a quoted commit message is one word, so
+# git commit -m "… git reset x" is not one of them. switch/checkout -f, --force,
+# --discard-changes, -C and -B; branch -f, -M, -C and -d/-D anywhere in the options, --delete;
+# update-ref.
+git_fo='([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+'
+if printf '%s\n' "$san_git" | grep -Eq "${gsep}git[[:space:]]+(switch|checkout)${git_fo}(-[a-zA-Z]*[fCB][a-zA-Z]*|--force|--discard-changes)([[:space:]]|\$)|${gsep}git[[:space:]]+branch${git_fo}(-[a-zA-Z]*[dDfMC][a-zA-Z]*|--force|--delete)([[:space:]]|\$)|${gsep}git[[:space:]]+update-ref([[:space:]]|\$)"; then
+  block "operaciones git que descartan trabajo están prohibidas desde Claude Code"
+fi
+# git reset: only a bare git reset and git reset [-q] [HEAD] [--] <paths> (unstaging) pass.
+# Without HEAD or --, the word after reset can be a commit (git reset HEAD~1, git reset main).
+reset_ok='^([[:space:]]+(-q|--quiet))*([[:space:]]+HEAD([[:space:]]+--)?([[:space:]]+[^-[:space:]][^[:space:]]*)*|[[:space:]]+--([[:space:]]+[^[:space:]]+)*)?[[:space:]]*$'
+while IFS= read -r r; do
+  [[ $r =~ $reset_ok ]] || block "git reset que mueve una rama o reescribe el índice (git reset <commit>, --soft, --mixed, --keep, --merge) no se usa desde Claude Code; para sacar rutas del índice: git reset HEAD -- <rutas>"
+done <<< "$(printf '%s\n' "$san_git" | grep -oE "${gsep}git[[:space:]]+reset([[:space:]].*)?" | sed -E 's/^.?git[[:space:]]+reset//')"
 if printf '%s\n' "$git_view" | grep -Eq "${gsep}git[[:space:]]+config[[:space:]]"; then
   block "no se cambia la configuración de git desde Claude Code"
 fi
@@ -121,10 +187,13 @@ fi
 # then apply to the whole command, without quotes or backslashes. The interpreter is looked for in
 # the text and also without quotes (ba''sh, "bash"), and it ends at any non-word character
 # (| bash;, | bash)). It is also looked for in the rewritten names of C1 (| BASH), and "git" is
-# matched in any case (GIT push).
+# matched in any case (GIT push). tcsh, csh, fish, tclsh, wish, expect, osascript, php and lua run
+# commands too, and so does awk when its program has system or getline (TD-077). The git forms of
+# TD-089 count as well.
 deq="$(printf '%s' "$flat" | tr -d "\"'\\\\" | sed -E 's#(^|[^A-Za-z0-9_.-])git(([[:space:]]+((-C|--git-dir|--work-tree|--namespace)[[:space:]]+[^[:space:]]+|-[^[:space:]]+))+)([[:space:]])#\1git\6#g')"
-if printf '%s\n%s\n%s\n' "$flat" "$deq" "$san_cn" | grep -Eq '(^|[^A-Za-z0-9_.-])(sh|bash|zsh|dash|ksh|python3?|node|perl|ruby|source)([^A-Za-z0-9_.-]|$)|(^|[;&|(){}])[[:space:]]*\.[[:space:]]|<<<'; then
-  if printf '%s\n' "$deq" | grep -Eq '(^|[^A-Za-z0-9_.-])[gG][iI][tT][[:space:]]+(push|merge|rebase|cherry-pick|revert|config|reset[[:space:]]+--hard|clean[[:space:]]+-[a-zA-Z]*f|branch[[:space:]]+-[dD]|stash[[:space:]]+(drop|clear)|restore[[:space:]]|checkout[[:space:]]+--[[:space:]])'; then
+if printf '%s\n%s\n%s\n' "$flat" "$deq" "$san_cn" | grep -Eq '(^|[^A-Za-z0-9_.-])(sh|bash|zsh|dash|ksh|python3?|node|perl|ruby|source|tcsh|csh|fish|tclsh|wish|expect|osascript|php|lua)([^A-Za-z0-9_.-]|$)|(^|[;&|(){}])[[:space:]]*\.[[:space:]]|<<<' \
+  || { printf '%s\n%s\n' "$flat" "$san_cn" | grep -Eq '(^|[^A-Za-z0-9_.-])[gnm]?awk([^A-Za-z0-9_.-]|$)' && printf '%s' "$flat" | grep -Eq 'system|getline'; }; then
+  if printf '%s\n' "$deq" | grep -Eq '(^|[^A-Za-z0-9_.-])[gG][iI][tT][[:space:]]+(push|merge|rebase|cherry-pick|revert|config|reset[[:space:]]+--hard|clean[[:space:]]+-[a-zA-Z]*f|branch[[:space:]]+-[dD]|stash[[:space:]]+(drop|clear)|restore[[:space:]]|checkout[[:space:]]+--[[:space:]]|reset[[:space:]]+(--(soft|mixed|merge|keep)|[^-[:space:]])|update-ref|(switch|checkout)([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+(-[a-zA-Z]*[fCB][a-zA-Z]*|--force|--discard-changes)|branch([[:space:]]+[^;&|[:space:]]+)*[[:space:]]+(-[a-zA-Z]*[dDfMC][a-zA-Z]*|--force|--delete))'; then
     block "push/merge/rebase/reset --hard/config de git dentro de un intérprete o de una cadena (bash -c, <<<, | bash, python3…): no se ejecutan desde Claude Code (ADR-006)"
   fi
 fi
@@ -362,6 +431,10 @@ redir="$(printf '%s\n' "$san_nm" | grep -oE '(&>>?|>[>|!&]?)[[:space:]]*[^[:spac
 while IFS= read -r t; do
   [ -n "$t" ] && check_target "$t" ">"
 done <<< "$redir"
+# The arguments of the writing commands, without the redirections and their files (CC3): in
+# cp /tmp/x .claude/task-scope.json 2>/dev/null the target is not /dev/null. A file descriptor
+# glued in front (2>, {fd}>) goes too. The redirection targets are checked above.
+san_wa="$(printf '%s\n' "$san_nm" | sed -E 's/(^|[[:space:]])([0-9]+|[{][A-Za-z_][A-Za-z0-9_]*[}])(&?[<>])/\1\3/g; s/(&>>?|<<<|<>|<&|>&|>>|>[|!]?|<)[[:space:]]*[^[:space:]<>&]*/ /g')"
 while IFS= read -r seg; do
   read -r -a w <<< "$seg"
   [ ${#w[@]} -gt 1 ] || continue
@@ -379,7 +452,7 @@ while IFS= read -r seg; do
     cp) [ -n "$last" ] && check_target "$last" cp ;;
     *) for a in ${args[@]+"${args[@]}"}; do check_target "$a" "$c"; done ;;
   esac
-done <<< "$san_nm"
+done <<< "$san_wa"
 # A $(…), `…`, <( ), >( ), =( ) or ( ) among the arguments of a writing command splits its
 # segment: what comes after it lands on another line and is no longer checked as an argument
 # (cp $(:) x .claude/hooks/lib.sh, rm "-rf$(:)" .claude, cp <(:) .claude/hooks/lib.sh). A writing
@@ -416,6 +489,7 @@ fi
 # options, git check-ignore, git status, git ls-files) if nothing reads or stores their output:
 # no |, $(, `, <( or >( in the command, and no $ or < outside single quotes (W: cat $_, cat $x,
 # < .env). "@" (curl -d @.env, -F f=@.env) and ":" (git show :.env, HEAD:.env) also name a file.
+# A word ends at a blank, "<", ">" and "&" (cat .env&>/tmp/o).
 env_re='(^|[/=@:])\.[eE][nN][vV](\.[A-Za-z0-9_.-]+)?$'
 env_ex='\.[eE][nN][vV](\.[tT][eE][sS][tT])?\.[eE][xX][aA][mM][pP][lL][eE]$'
 envg_re='(^|[/=@:,{|(+?-])\.([eE*?[{(,}|)]|$)'
@@ -429,7 +503,7 @@ env_pre="$(printf '%s\n' "$san_nm" \
   | sed -E 's/^(git[[:space:]]+log([[:space:]].*)?[[:space:]])--grep(=|[[:space:]]+)[^[:space:]]+/\1 /' \
   | sed -E "/$gr_ef/!s/^((git[[:space:]]+)?[ef]?grep)(([[:space:]]+($gr_opt))*)([[:space:]]+--)?[[:space:]]+$gr_pat/\\1\\3 /" \
   | sed -E "/$gr_ef/!s/^(rg)(([[:space:]]+($rg_opt))*)([[:space:]]+--)?[[:space:]]+$gr_pat/\\1\\2 /")"
-if printf '%s\n' "$env_pre" | tr ' <>' '\n\n\n' | grep -Eq "$env_re|$envg_re"; then
+if printf '%s\n' "$env_pre" | tr ' <>&' '\n\n\n\n' | grep -Eq "$env_re|$envg_re"; then
   env_wl=1
   printf '%s' "$cmd" | sed 's/||//g' | grep -Eq '[|`]|\$\(|<\(|>\(' && env_wl=0
   case "$sanitized" in *'$'*|*'<'*) env_wl=0 ;; esac
@@ -441,7 +515,7 @@ if printf '%s\n' "$env_pre" | tr ' <>' '\n\n\n' | grep -Eq "$env_re|$envg_re"; t
         ls|ls\ *|test\ *|\[\ *|\[\[\ *|stat\ *|echo|echo\ *|printf\ *|git\ check-ignore\ *|git\ status|git\ status\ *|git\ ls-files|git\ ls-files\ *) continue ;;
       esac
     fi
-    IFS=' <>' read -r -a w <<< "$seg"
+    IFS=' <>&' read -r -a w <<< "$seg"
     for a in ${w[@]+"${w[@]}"}; do
       if { [[ $a =~ $env_re ]] && ! [[ $a =~ $env_ex ]]; } || { [[ $a == *[*?[{]* ]] && [[ $a =~ $envg_re ]]; }; then
         block "no se leen ficheros .env desde Claude Code (si .env es un patrón de búsqueda, escápalo: '\\.env')"
@@ -449,7 +523,9 @@ if printf '%s\n' "$env_pre" | tr ' <>' '\n\n\n' | grep -Eq "$env_re|$envg_re"; t
     done
   done <<< "$env_pre"
 fi
-if printf '%s\n' "$code_flat" | tr ' \t;&<>' '\n\n\n\n\n\n' | grep -v "^[\"']" | grep -F '(' | grep -Eq "$envg_re"; then
+# Empty quotes before the word ('', "", $'') do not quote the glob group after them (TD-090):
+# cat ''(.e)nv is cat (.e)nv in zsh, so they are removed before the quoted words are skipped.
+if printf '%s\n' "$code_flat" | tr ' \t;&<>' '\n\n\n\n\n\n' | sed -E "s/^([\$]?(''|\"\"))+//" | grep -v "^[\"']" | grep -F '(' | grep -Eq "$envg_re"; then
   block "no se leen ficheros .env desde Claude Code (si .env es un patrón de búsqueda, escápalo: '\\.env')"
 fi
 # A word that the sanitizer split at a $(…), `…` or "(" and that starts like .env (C9): in zsh,
@@ -458,7 +534,8 @@ fi
 if printf '%s\n' "$sanitized" | grep -Eq '(^|[[:space:]/=@:])\.([eE]([nN]([vV](\.[A-Za-z0-9_.-]*)?)?)?)?\$_$'; then
   block "no se leen ficheros .env desde Claude Code (si .env es un patrón de búsqueda, escápalo: '\\.env')"
 fi
-if printf '%s' "$flat" | grep -Eq 'docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*[[:space:]](printenv|env)([[:space:]]|$)|docker[[:space:]]+inspect[^|;&]*(Config\.Env|\.Env\b)|docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*(cat|grep|sed|awk)[^|;&]*\.env'; then
+# A "}", ")" or ";" glued after printenv/env ends the word too ({docker exec c env}, … env;).
+if printf '%s' "$flat" | grep -Eq 'docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*[[:space:]](printenv|env)([^A-Za-z0-9_./=-]|$)|docker[[:space:]]+inspect[^|;&]*(Config\.Env|\.Env\b)|docker[[:space:]]+(compose[[:space:]]+)?exec[^|;&]*(cat|grep|sed|awk)[^|;&]*\.env'; then
   block "no se leen variables de entorno ni secretos de un contenedor en marcha; la evidencia con la base la aporta el humano con su .env"
 fi
 # Printing secrets: unfiltered `env`/`printenv`, or the EXPANSION of a variable with a sensitive
@@ -487,8 +564,8 @@ while IFS= read -r seg; do
       # `env -i X=y cmd` / `env X=y cmd` run a command with a given environment: allowed.
       if printf '%s' "$args" | grep -Eq '(^|[[:space:]])[A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+[^[:space:]-]' && ! printf '%s' "$args" | grep -Eq '(^|[[:space:]])(env|printenv)([[:space:]]|$)'; then :
       elif [ -z "$args" ] || printf '%s' "$args" | grep -Eq '^-[^i]|^-i[[:space:]]*$|(^|[[:space:]])(env|printenv)([[:space:]]|$)' || printf '%s' "$args" | grep -Eq 'API_KEY|SECRET|TOKEN|PASSWORD|PASSWD'; then env_dump=1; fi ;;
-    export|export[[:space:]]*|typeset|typeset[[:space:]]*|declare|declare[[:space:]]*|readonly|readonly[[:space:]]*|set)
-      # Dumps without env (C3): export, typeset, declare and readonly without a name (export -p,
+    export|export[[:space:]]*|typeset|typeset[[:space:]]*|declare|declare[[:space:]]*|readonly|readonly[[:space:]]*|local|local[[:space:]]*|set)
+      # Dumps without env (C3): export, typeset, declare, readonly and local (zsh, TD-092) without a name (export -p,
       # typeset -x, declare -px), with -m (a pattern) or with a sensitive name, and a bare set.
       # set -euo pipefail, set -o and export FOO=bar are not dumps.
       read -r -a w <<< "$seg"
@@ -499,6 +576,9 @@ while IFS= read -r seg; do
       [ "${w[0]}" = set ] && [ ${#w[@]} -gt 1 ] && dump=0
       printf '%s' "$seg" | grep -Eq 'API_KEY|SECRET|TOKEN|PASSWORD|PASSWD' && dump=1
       [ $dump = 1 ] && env_dump=1 ;;
+    setenv)
+      # csh/tcsh: setenv without a name prints the whole environment (setenv NAME value sets it).
+      env_dump=1 ;;
     ps|ps[[:space:]]*)
       # ps with "e" in BSD style (ps eww) or with -E prints the environment of each process (C3).
       read -r -a w <<< "$seg"
@@ -540,14 +620,16 @@ fi
 # get around the rule above. They have no legitimate use here. eval is also looked for as the
 # command of each segment ($san_nm, with the lines of C1), where e""val, \eval, (eval …),
 # $(eval …), bash -c 'eval …' and a heredoc that runs show it. Before it there may be the options
-# that time -p leaves, coproc, and zsh's repeat N and [[ … ]].
-if printf '%s' "$flat" | grep -Eq '\$\{![A-Za-z_]|(^|[;&| ])eval[[:space:]]' \
+# that time -p leaves, coproc, and zsh's repeat N and [[ … ]]. zsh's flags P and e (${(P)x},
+# ${(@P)x}, ${${(e)x}}) are indirect expansion and eval too (TD-085).
+if printf '%s' "$flat" | grep -Eq '\$\{![A-Za-z_]|\$\{(\$\{)*\([^)]*[Pe]|(^|[;&| ])eval[[:space:]]' \
   || printf '%s\n' "$san_nm" | grep -Eq '^((-[^[:space:]]*|coproc|repeat[[:space:]]+[^[:space:]]+|\[\[.*\]\])[[:space:]]+)*eval([[:space:]]|$)'; then
   block "expansión indirecta o eval no permitidos (podrían exponer secretos por nombre compuesto)"
 fi
 
 # ---- executed downloads -------------------------------------------------------------
-if printf '%s' "$flat" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(sh|bash|zsh|node|python3?)([[:space:]]|$)'; then
+# The interpreter ends at any non-word character, as in S7: | bash;, | bash), {curl … | bash}.
+if printf '%s' "$flat" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(sh|bash|zsh|node|python3?)([^A-Za-z0-9_.-]|$)'; then
   block "no se ejecutan descargas directamente (curl | sh)"
 fi
 

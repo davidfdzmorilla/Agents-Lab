@@ -60,6 +60,7 @@ Elección de modelos: Opus donde el juicio importa (diseño, revisión, orquesta
 | Commit solo con tarea DONE | `bash-guard.sh` solo permite `git commit` si `.claude/task-scope.json` tiene `"commit_allowed": true`, que únicamente escribe el Orquestador en `/commit` tras los veredictos |
 | Dependencias sin aprobación | `bash-guard.sh` bloquea `pnpm add`, `pnpm install <pkg>`, `npm i <pkg>` salvo que el TASK PACKET las liste en `task-scope.json → deps_allowed`. Fuera del repositorio, instalar para validar está permitido; dentro, solo `deps_allowed`. Instalar en el repo por un camino distinto de `pnpm add` para meter lo que `deps_allowed` no autoriza es un rodeo. |
 | Un bloqueo de hook se cita y se para; nunca se rodea, tampoco en el scratchpad ni escribiendo por Bash lo que Write no deja. Una evasión detectada invalida la evidencia de esa fase y la fase se repite. Un bloqueo que parece un falso positivo se reporta como tal; el juicio de si lo es no es del subagente. | Prompt de cada subagente («nunca intentes rodearlo») + revisión del Orchestrator de los informes; los hooks (`bash-guard`, `role-guard`, `scope-guard`) bloquean y el agente cita el bloqueo literal en su informe |
+| Las barreras no se cambian por el sistema de ficheros | `chflags -R uchg` sobre `.claude/hooks`, `.githooks` y `.claude/settings.json` (OD-055 b), que pone y quita solo el humano, a mano (§4.2). `bash-guard.sh` bloquea `chflags`. El caso «4b) uchg» de `make verify-hooks` sale en rojo si falta la marca |
 | Edición de ficheros del repositorio | "Los ficheros del repositorio se editan con Edit/Write. Un script en línea (python3 -c, node -e, perl -i) que escriba en el repositorio cuenta como rodeo del hook aunque no haya habido bloqueo; sed -i y tee sobre rutas del scope sí están permitidos porque el hook los analiza". Una evasión invalida la evidencia de la fase y la fase se repite. | Mecanismo: `bash-guard.sh` analiza las escrituras por shell (`sed -i`, `tee`, redirecciones) y `scope-guard`/`role-guard` las de Edit/Write |
 | Toda validación se ejecuta con la versión de Node del proyecto | Toda validación (tests, typecheck, lint, formato, builds) se ejecuta con la versión de Node del proyecto (`>=22.12 <23`): en el contenedor fijado (`make test`/`make validate`) o con nvm; nunca con otro Node del host. Aplica a todos los roles, también a reviewer y security. Mecanismo: instrucción en los TASK PACKET + revisión del Orchestrator de los informes; `engines`/`engine-strict` en `.npmrc` cubre las instalaciones. |
 
@@ -75,6 +76,23 @@ Aprobado por el humano el 2026-10-28 (TASK-044, CC3.20). Se aplica a `bash-guard
 4. **Deuda MEDIUM de barreras.** Se acepta solo con: comando de ejemplo, riesgo en una frase y por qué no es un camino natural para un agente que coopera.
 5. **Un comando que escribe sobre una barrera nunca es excepción aceptada.** Si se conoce, es un hueco abierto: se registra como deuda con tarea que lo cierra.
 6. **Falsos positivos.** Se aceptan solo con una alternativa que pase.
+
+### 4.2 Marca `uchg` en las barreras (OD-055)
+
+Decisión humana del 2026-11-05 (SPEC §13, OD-055 b). `.claude/hooks`, `.githooks` y `.claude/settings.json` llevan la marca `uchg` (inmutable para el usuario). Mientras la marca está puesta, el sistema operativo rechaza escribir, borrar, renombrar o cambiar los permisos de esos ficheros. Es un freno, no una pared (SPEC §13, OD-055 b; ADR-013, «Negativas»): el dueño la quita sin `sudo` con `chflags -R nouchg`, y cualquier proceso del usuario puede quitarla igual y escribir después. Lo único que impide que un comando lanzado desde Claude Code la quite es bash-guard, que bloquea `chflags`, y, cuando exista, el sandbox de TASK-048. bash-guard no ve todas las formas: `xargs`/`find -exec chflags`, `os.chflags` y `SetFile` se le escapan (ADR-013). Un proceso que no pasa por ninguno de los dos sí puede quitarla, por ejemplo un `make` excluido del sandbox o un test que lanza ese `make`. La marca la pone y la quita **solo el humano, a mano, desde su terminal**. No hay target de `make` para esto: un `make` excluido del sandbox correría sin él y sería la forma de quitarla.
+
+En cada cambio de barrera (la copia del kit de una tarea, un cambio de `settings.json`, y también un `git checkout`, `git stash`, `git pull` o `git rebase` que toque esas rutas), desde la raíz del repositorio:
+
+1. Ver el estado: `ls -ldO .claude/hooks .claude/hooks/* .githooks .githooks/* .claude/settings.json`
+2. Quitar la marca: `chflags -R nouchg .claude/hooks .githooks .claude/settings.json`
+3. Hacer el cambio (por ejemplo, el script de copia de la tarea).
+4. Poner la marca: `chflags -R uchg .claude/hooks .githooks .claude/settings.json`
+5. Comprobar: `ls -ldO .claude/hooks .claude/hooks/* .githooks .githooks/* .claude/settings.json` muestra `uchg` en los dos directorios, en cada fichero que contienen y en `settings.json`, y `make verify-hooks` sale con 0 (el caso «4b) uchg» sale en rojo si falta la marca).
+
+- `-R` aplica la marca al directorio y a todo lo que contiene.
+- Con la marca puesta, `cp`, `mv`, `rm`, `chmod` y cualquier escritura sobre esos ficheros fallan con «Operation not permitted», también para el humano. Si un comando falla así, la marca está puesta: se sigue este procedimiento.
+- Con la marca, git puede leer esos ficheros y hacer commit de ellos. Lo que falla es cambiarlos en el árbol de trabajo.
+- Un subagente que vea en rojo el caso «4b) uchg» lo informa; no lo corrige.
 
 ## 5. Ciclo de una tarea
 

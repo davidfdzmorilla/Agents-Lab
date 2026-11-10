@@ -1,4 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# C6: fixed PATH, so a python3, jq, awk... planted earlier in the user's PATH never runs here.
+export PATH=/usr/bin:/bin
+# /usr/bin/python3 and /usr/bin/git are xcrun shims: no lookup cache, which the user can write.
+export xcrun_nocache=1
 # PreToolUse (Edit|Write|MultiEdit|NotebookEdit), global para la sesión y todos los subagentes.
 # Bloquea cualquier edición fuera del scope de la tarea activa (.claude/task-scope.json → allow[]).
 # El Orchestrator escribe task-scope.json en /execute-task y lo deja en {"allow":["*"]} al terminar.

@@ -1,4 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# C6: fixed PATH, so a python3, jq, awk... planted earlier in the user's PATH never runs here.
+export PATH=/usr/bin:/bin
+# /usr/bin/python3 and /usr/bin/git are xcrun shims: no lookup cache, which the user can write.
+export xcrun_nocache=1
 # Utilidades compartidas por los hooks de Claude Code de AgentLab.
 # Los hooks reciben JSON por stdin y bloquean con exit 2 (mensaje en stderr).
 
@@ -14,7 +18,8 @@ read_input() { INPUT="$(cat)"; export INPUT; }
 json_get() {
   local path="$1"
   if command -v jq >/dev/null 2>&1; then
-    printf '%s' "$INPUT" | jq -r "$path // empty"
+    # HOME=/var/empty: jq sources $HOME/.jq, where a def empty: true; would change the answer.
+    printf '%s' "$INPUT" | HOME=/var/empty jq -r "$path // empty"
   elif command -v python3 >/dev/null 2>&1; then
     printf '%s' "$INPUT" | python3 -I -c '
 import json,sys
@@ -36,7 +41,7 @@ scope_get() {
   local key="$1"
   [ -f "$SCOPE_FILE" ] || return 0
   if command -v jq >/dev/null 2>&1; then
-    jq -r --arg k "$key" '.[$k] // empty | if type=="array" then .[] else . end' "$SCOPE_FILE"
+    HOME=/var/empty jq -r --arg k "$key" '.[$k] // empty | if type=="array" then .[] else . end' "$SCOPE_FILE"
   elif command -v python3 >/dev/null 2>&1; then
     python3 -I -c '
 import json,sys

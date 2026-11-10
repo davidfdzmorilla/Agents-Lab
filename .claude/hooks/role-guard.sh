@@ -1,4 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
+# C6: fixed PATH, so a python3, jq, awk... planted earlier in the user's PATH never runs here.
+export PATH=/usr/bin:/bin
+# /usr/bin/python3 and /usr/bin/git are xcrun shims: no lookup cache, which the user can write.
+export xcrun_nocache=1
 # PreToolUse (Edit|Write|MultiEdit|NotebookEdit) declarado en el frontmatter de cada agente:
 #   command: "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/role-guard.sh <rol>"
 # Limita qué rutas puede editar cada rol (docs/AGENTS.md §3). Se combina con scope-guard (intersección).
