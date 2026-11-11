@@ -1,0 +1,22 @@
+{
+  "name": "@agentlab/providers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.config.json",
+    "lint": "eslint .",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@agentlab/core": "workspace:*",
+    "openai": "7.45.1"
+  },
+  "devDependencies": {
+    "msw": "3.0.3"
+  }
+}

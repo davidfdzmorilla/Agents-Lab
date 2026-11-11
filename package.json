@@ -18,6 +18,23 @@
     "format": "prettier --write \"{apps,packages}/**/*.{ts,tsx,js,json}\" \"*.{js,json}\" \"!packages/persistence/migrations/meta/**\"",
     "format:check": "prettier --check \"{apps,packages}/**/*.{ts,tsx,js,json}\" \"*.{js,json}\" \"!packages/persistence/migrations/meta/**\""
   },
+  "pnpm": {
+    "overrides": {
+      "msw>@inquirer/confirm": "6.3.5",
+      "@inquirer/confirm>@inquirer/core": "12.0.6",
+      "@inquirer/confirm>@inquirer/type": "4.2.1",
+      "@inquirer/core>@inquirer/ansi": "2.0.10",
+      "@inquirer/core>@inquirer/figures": "2.0.10",
+      "@inquirer/core>@inquirer/type": "4.2.1",
+      "msw>@mswjs/interceptors": "0.45.10",
+      "msw>cookie": "2.0.1",
+      "msw>tough-cookie": "6.0.2",
+      "tough-cookie>tldts": "7.4.19",
+      "tldts>tldts-core": "7.4.19",
+      "headers-polyfill>set-cookie-parser": "3.2.1",
+      "strip-ansi>ansi-regex": "6.4.0"
+    }
+  },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/node": "22.20.5",

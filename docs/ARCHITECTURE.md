@@ -57,7 +57,7 @@ core ← persistence ← policies ← providers ← orchestrator ← agents ← 
 | `tools` | `ToolRegistry`, herramientas (`web.search`, `source.read`, `artifact.*`), allowlist HTTP. | Decisiones de autorización (las toma `policies`). |
 | `evaluations` | Datasets de tareas, evaluadores, comparación de runs. | — |
 
-Cada paquete exporta desde `src/index.ts` y, opcionalmente, sub-exports declarados en `package.json` `exports`; nunca rutas internas (decisión humana del 2026-10-21, TASK-007). Importar rutas internas de otro paquete está prohibido (lint rule `no-restricted-imports`). Sub-exports actuales: `@agentlab/persistence/testing` y `@agentlab/persistence/migrate` (`runMigrations`, fuera del índice: OD-040 a); previsto: `@agentlab/providers/testing`. Cada sub-export está cubierto por el test de exports de su paquete.
+Cada paquete exporta desde `src/index.ts` y, opcionalmente, sub-exports declarados en `package.json` `exports`; nunca rutas internas (decisión humana del 2026-10-21, TASK-007). Importar rutas internas de otro paquete está prohibido (lint rule `no-restricted-imports`). Sub-exports actuales: `@agentlab/persistence/testing`, `@agentlab/persistence/migrate` (`runMigrations`, fuera del índice: OD-040 a) y `@agentlab/providers/testing` (`FakeProvider`, TASK-010). Cada sub-export está cubierto por el test de exports de su paquete.
 
 ## 3. Contratos centrales
 
@@ -255,7 +255,7 @@ Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`)
 
 Dependencias fijadas por OD-001 (TASK-002, ADR-002) y por TASK-004 (OD-009), verificadas con `npm view` el 2026-10-20, y por TASK-007 (OD-042), verificadas el 2026-10-21. Versión exacta, sin `^`, idéntica en todos los workspaces que la usen.
 
-Antigüedad mínima: cada dependencia nueva o actualizada usa una versión publicada hace al menos dos semanas. Única excepción: un aviso de seguridad verificado por `security`, con cita del aviso (identificador GHSA/CVE, URL y fecha); la excepción se registra en el ADR o en el plan de la tarea con el identificador del aviso. Ejemplo vigente: `next` 16.4.2 (OD-042, ADR-012). Decisión humana del 2026-10-21 (TASK-007), sin OD.
+Antigüedad mínima: cada dependencia nueva o actualizada usa una versión publicada hace al menos dos semanas. Única excepción: un aviso de seguridad verificado por `security`, con cita del aviso (identificador GHSA/CVE, URL y fecha); la excepción se registra en el ADR o en el plan de la tarea con el identificador del aviso. Ejemplo vigente: `next` 16.4.2 (OD-042, ADR-012). Decisión humana del 2026-10-21 (TASK-007), sin OD. La regla rige también para las dependencias transitivas que entran nuevas o cambian en el lockfile; si no la cumplen, se fijan con overrides acotados (`pnpm.overrides` con selector padre>hijo) hasta que cumplan (OD-067, 2026-11-11; automatización en TASK-040).
 
 | Paquete | Versión | Workspace | Razón |
 |---|---|---|---|
@@ -276,6 +276,8 @@ Antigüedad mínima: cada dependencia nueva o actualizada usa una versión publi
 | `vitest` | `5.0.5` | raíz (dev) | Runner de tests (OD-009); engines `^22.12.0 \|\| ^24 \|\| >=26`; TASK-004 |
 | `@vitest/coverage-v8` | `5.0.5` | raíz (dev) | Cobertura v8; peer `vitest 5.0.5` exacto; TASK-004 |
 | `vite` | `8.3.4` | raíz (dev) | Peer obligatorio de `vitest` 5, declarado explícitamente; TASK-004 |
+| `openai` | `7.45.1` | `providers` (`dependencies`) | SDK de los endpoints compatibles con OpenAI que fija SPEC §3 (adaptador `openai-compatible`, ADR-003); publicada el 2026-10-27; TASK-010. Entra también de forma transitiva en `persistence` y en las imágenes runtime/`migrate` como peer opcional de `langsmith@0.11.0` (snapshot de `langsmith` en `pnpm-lock.yaml`; `docker/worker.Dockerfile:21,30`); revisión en TASK-017 |
+| `msw` | `3.0.3` | `providers` (dev) | Servidor HTTP falso de los tests unitarios del adaptador (OD-062); TASK-010. Sus transitivas con menos de dos semanas se fijan con `pnpm.overrides` en el `package.json` raíz (OD-067); su retirada o un acotado más estricto, en TASK-040 |
 
 Compatibilidad: peers verificados con `npm view` y release coordinado langgraphjs #2961 (2026-10-12); fuentes en ADR-002. `@langchain/langgraph-checkpoint` y `@langchain/core` resuelven a una sola versión exacta (`1.2.0` y `1.2.18`) en `persistence` y `orchestrator`: TASK-013 elige el mecanismo (declaración exacta en ambos `package.json` o `pnpm.overrides` en la raíz) y TASK-023 lo comprueba con `pnpm why`. `zod` queda fijado en TASK-004; cuando entre `@langchain/core` (TASK-013), `pnpm why zod` debe mostrar una sola instancia (`4.6.7`). `react`/`react-dom`/`tailwindcss` quedan fijadas en TASK-007 (OD-042, verificadas con `npm view` el 2026-10-21). Subir cualquiera de estas versiones es una tarea propia que vuelve a verificar la compatibilidad.
 
