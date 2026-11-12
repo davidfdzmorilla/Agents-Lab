@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Images built with `pnpm deploy` (ADR-011). Final images never contain pnpm, corepack or the monorepo.
-FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS base
+FROM node:22.23.4-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS base
 ENV TURBO_TELEMETRY_DISABLED=1 \
     COREPACK_HOME=/opt/corepack \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -30,7 +30,7 @@ RUN npm pkg delete devDependencies \
  && pnpm --filter @agentlab/persistence deploy --ignore-scripts /out
 
 # Node without package managers: they cannot run in worker or migrate.
-FROM node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS slim
+FROM node:22.23.4-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS slim
 RUN rm -rf /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg \
         /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn-*
 ENV NODE_ENV=production \

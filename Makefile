@@ -6,7 +6,7 @@ SHELL := /bin/bash
 
 export TURBO_TELEMETRY_DISABLED := 1
 
-NODE_IMAGE := node:22.23.3-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+NODE_IMAGE := node:22.23.4-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d
 PNPM_STORE_VOLUME := agentlab-pnpm-store
 # Root files (eslint.config.js, future root *.js/*.ts); workspaces are linted by `pnpm -r lint` (TD-007).
 LINT_ROOT := pnpm exec eslint --ignore-pattern "apps/**" --ignore-pattern "packages/**" .

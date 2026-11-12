@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Versión | 1.1 (2026-10-20) |
+| Versión | 1.2 (2026-11-12) |
 | Jerarquía | ADR > SPEC > ARCHITECTURE > **AGENTS + WORKFLOW** > ROADMAP > TASKS |
 
 ## 1. Principio rector
@@ -94,6 +94,7 @@ Tipos: `feat`, `fix`, `test`, `docs`, `chore`, `refactor`, `ci`, `build`. Scope 
 | Reviewer `CHANGES_REQUESTED` con BLOCKER/MAJOR | Igual que arriba. Los MINOR/NIT se pueden aceptar como deuda LOW si el humano lo aprueba. |
 | Security `BLOCKED` | Tarea vuelve a `IN_PROGRESS`; no hay cierre posible sin `APPROVED`. |
 | Hook bloquea una edición | El owner lo reporta; el Orquestador revisa el scope. Nunca se desactiva el hook. |
+| Hook bloquea un comando (bash-guard) | Tras un bloqueo, reformular la orden para que el hook la acepte por sus propias reglas, o parar e informar citando el bloqueo literal. Nunca pasar a un fichero (script) la lógica bloqueada, ni ejecutarla con `"$(cat …)"`. Regla de TASK-042 (TD-153). |
 | Dependencia nueva necesaria | Owner lo reporta sin instalarla; humano aprueba; Orquestador añade a `deps_allowed` y relanza. |
 | OPEN DECISION descubierta | `/open-decision` la registra en SPEC §13; si bloquea, tarea `BLOCKED` y se pasa a la siguiente READY. |
 | Worker/DB no arranca en tests | `devops` primero; nunca se "arregla" un test para que pase sin DB. |

@@ -2,11 +2,11 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-11-11 (TASK-010 → DONE con TEST PASS, REVIEW APPROVED y SECURITY APPROVED; TASK-018 → READY; deuda registrada en TECHNICAL_DEBT.md, TD-140 a TD-147) |
+| Última actualización | 2026-11-12 (TASK-042 → DONE con TEST PASS ×2, REVIEW APPROVED ×2 y SECURITY APPROVED; CI pendiente del push; TD-045 PAID; TD-148 a TD-153 registradas; TD-097 → MEDIUM y TD-128 ampliadas) |
 | Hito actual | M1 |
 | Tarea en IN_PROGRESS | — |
 | Tarea en REVIEW | — |
-| Tareas READY | TASK-012, TASK-018, TASK-040, TASK-041, TASK-042, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). |
+| Tareas READY | TASK-012, TASK-018, TASK-040, TASK-041, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). TASK-049 TODO (no antes del 2026-11-25). |
 
 ## Cómo se lee este documento
 
@@ -512,8 +512,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - `security` verifica la configuración aplicada (lectura de la API de GitHub, con cita) y la deuda MEDIUM de TASK-006 pasa a PAID.
 
 ### TASK-042 · Subir Node a 22.23.4 (parche de seguridad)
-- **Estado**: READY · **Owner**: devops · **Depende de**: TASK-006 · **security REQUIRED**
-- **Scope**: `.nvmrc`, `docker/worker.Dockerfile`, `docker/web.Dockerfile`, `Makefile` (`NODE_IMAGE`), `docs/ARCHITECTURE.md` §9 (architect)
+- **Estado**: DONE (2026-11-12; TEST PASS ×2, REVIEW APPROVED ×2, SECURITY APPROVED; informe en `docs/reports/TASK-042.md`; CI pendiente del push del humano) · **Owner**: devops · **Depende de**: TASK-006 · **security REQUIRED**
+- **Scope**: `.nvmrc`, `docker/worker.Dockerfile`, `docker/web.Dockerfile`, `Makefile` (`NODE_IMAGE`), `scripts/ci/check-node-version.sh` (lo pide el DoD; decisión humana del 2026-11-11), `docs/ARCHITECTURE.md` §9 (architect)
+- **Plan**: no hace falta (decisión del 2026-11-11: tarea acotada); aprobada por el humano el 2026-11-11.
 - **DoD**:
   - Node 22.23.4 (release de seguridad del 2026-10-20) en `.nvmrc`, en los Dockerfiles y en `NODE_IMAGE` del `Makefile`, con la imagen fijada por digest; el paso de CI de TASK-006 que compara las versiones pasa.
   - `security` cita el aviso o las notas de la release (identificador, URL, fecha) y verifica que 22.23.3 está afectada; si la versión tiene menos de dos semanas, la excepción se registra con el identificador del aviso (ARCHITECTURE §9).
@@ -527,6 +528,14 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Healthcheck de `web` en `compose.yaml` y `depends_on` con `condition: service_healthy` donde haga falta. Hoy `web` no tiene healthcheck (`compose.yaml:35-57`) y `make up -d` vuelve antes de que Next escuche.
   - El README deja de pedir reintentos del `curl` de `/api/health` cuando el healthcheck lo cubra.
   - TD-052: `compose.yaml:1` fija `name: agentlab`, así que dos checkouts comparten contenedores y volúmenes. Se decide en `/next-task`, con el humano, si se documenta en el README o se cambia en `compose.yaml` (decisión humana del 2026-10-26).
+
+### TASK-049 · Subir Node a 22.23.5 (parche de seguridad)
+- **Estado**: TODO (no antes del 2026-11-25, cuando 22.23.5, publicada el 2026-11-11, cumple las dos semanas de ARCHITECTURE §9; antes, solo con excepción registrada si entra HTTPS o HTTP/2 en un servidor propio) · **Owner**: devops · **Depende de**: TASK-042 · **security REQUIRED** · **Severidad de la deuda que paga**: MEDIUM (S1 de security en TASK-042)
+- **Scope**: `.nvmrc`, `docker/worker.Dockerfile`, `docker/web.Dockerfile`, `Makefile` (`NODE_IMAGE`), `docs/ARCHITECTURE.md` §9 (architect)
+- **DoD**:
+  - Node 22.23.5 en `.nvmrc`, en los Dockerfiles y en `NODE_IMAGE` del `Makefile`, con la imagen fijada por digest; `scripts/ci/check-node-version.sh` pasa.
+  - `security` cita el aviso (CVE-2026-123864, -123865, -123866 y -123872: servidores HTTPS, HTTP/2 y TLS 1.2), comprueba la fecha de la release (OD-068) y revisa si sale una versión posterior.
+  - `make test`, `make validate` y la CI en verde.
 
 ### TASK-044 · Endurecer el saneador de bash-guard
 - **Estado**: DONE (ciclo de corrección 3 de 3, el último; TEST PASS, REVIEW APPROVED y SECURITY APPROVED tras E11; informe en `docs/reports/TASK-044.md`) · **Owner**: humano (ADR-006: ningún agente edita barreras; verifican `security` y el tester con `make verify-hooks`) · **Depende de**: TASK-009 · **Hito**: M0 posterior al cierre; va antes de las tareas de proveedores porque M2 afecta a la protección de `.env`
@@ -984,3 +993,13 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-11-11 | TASK-010 ciclo 3: el architect registra OD-067 (SPEC :398, ARCHITECTURE :258, plan §0). Devops añade 13 `pnpm.overrides` acotados en el `package.json` raíz y regenera el lockfile: las 12 transitivas quedan con fecha ≤ 2026-10-27 y dentro de su rango `^`. Efecto colateral: `mute-stream` pasa de 4.0.0 a 3.0.0 (2025-10-22). Ninguna de las 45 versiones nuevas frente a e3fae25 es posterior al 2026-10-28. `install --frozen-lockfile`, `typecheck`, `lint` y `format:check` OK; 109/109. → REVIEW: tester (suite completa). |
 | 2026-11-11 | TASK-010 tras el ciclo 3: **TEST PASS** (providers 109/109, core 171/171, `pnpm why` cuadra; los 2 `*.integration.test.ts` de web fallan sin `DATABASE_URL_TEST`, algo que ya pasaba antes y que en la CI no ocurre). **REVIEW APPROVED** (1 NIT: «acotados a msw» en SPEC:398 y plan:54 no es exacto). **SECURITY APPROVED**: M1 cerrado (las 45 versiones nuevas tienen ≥ 14 días, la integridad coincide con el registro y hay 0 avisos); L6 nueva (los selectores de los overrides no indican la versión del padre; pago en TASK-040). TEST PASS, REVIEW APPROVED y SECURITY APPROVED → listo para /close-task. |
 | 2026-11-11 | TASK-010 → DONE (cierre por docs-keeper). Veredictos finales: TEST PASS (DoD 8/8; 109/109; cobertura 100 / 99.32 / 100 / 100), REVIEW APPROVED, SECURITY APPROVED (M1 cerrado por OD-067; L6 registrada). Tras 3 ciclos de corrección. Informe en `docs/reports/TASK-010.md`. Desbloqueadas: TASK-018 (BLOCKED → READY; su única dependencia es TASK-010). TASK-013 sigue BLOCKED (depende también de TASK-011, BLOCKED). Deuda: TD-140 a TD-147 registradas (LOW); TD-097 y TD-128 ampliadas; ninguna TD pagada. Hito actual sin cambios (M1). |
+| 2026-11-11 | TASK-010 commit deaf486 |
+| 2026-11-11 | TD-146 → pago asignado a TASK-040 (decisión humana). |
+| 2026-11-11 | TASK-042: /next-task sin plan (tarea acotada). El humano la aprueba y amplía el scope con `scripts/ci/check-node-version.sh`, que pide el DoD (paga TD-045). Security comprobará además si 22.23.4 corrige los avisos HIGH del undici que trae Node (R5 de TASK-010). |
+| 2026-11-12 | TASK-042 → IN_PROGRESS. Scope de devops: `.nvmrc`, los dos Dockerfiles, `Makefile` y `scripts/ci/check-node-version.sh`; ARCHITECTURE §9 lo edita después el architect. Sin `deps_allowed`. → devops. |
+| 2026-11-12 | TASK-042: IMPLEMENTATION de devops. Node 22.23.4 en los 5 sitios con el digest de índice `sha256:5ec23b7c…`, y `check-node-version.sh` comprueba ahora el digest (con pruebas en positivo y en negativo). En contenedor: install, typecheck, lint, format y los builds dan OK; undici pasa de 6.28.1 a 6.29.1. Imagen construida el 2026-11-05. Bloqueo de bash-guard («no se leen ficheros .env…») en un comando en línea que no leía `.env`; devops pasó la lógica a un fichero y lo ejecutó, y lo declara como desviación (se envía a security). → REVIEW: tester. |
+| 2026-11-12 | TASK-042: **TEST PASS** (digest en los 5 sitios; core 171 y providers 109 con 22.23.4; builds OK; ningún «22.23.3» fuera de docs; un digest de 66 hex pasa). **REVIEW APPROVED** con 2 MINOR en `check-node-version.sh` (la selección deja pasar `from`, FROM sangrado, `node:latest`, `node@` y `node:${V}`; el digest no se ancla al final) y 2 NIT. Decisiones humanas: «Corregir ya»; para la antigüedad de una imagen cuenta la fecha de la release de Node, no la de la reconstrucción (OD-068, la registra el architect al cerrar). → IN_PROGRESS, **ciclo de corrección 1 de 3** → devops. |
+| 2026-11-12 | TASK-042 ciclo 1: devops corrige `check-node-version.sh` (selección sin distinguir mayúsculas, con sangría y `node[:@]`; formato `node:<ver>-<variante>@sha256:<64 hex>` anclado; 2 NIT). Con bash 3.2 del host: 14 casos, 12 negativos dan EXIT=1 y el árbol real EXIT=0. El hook bloqueó la prueba con el bash de la imagen («no se leen ficheros .env…», falso positivo TD-097 por `.*` en un `sed`); devops paró y no lo rodeó. → REVIEW: tester (suite completa y casos con bash 5). |
+| 2026-11-12 | TASK-042 tras el ciclo 1: **TEST PASS** (21 casos negativos con el mismo EXIT en bash 3.2 y bash 5.2; suite en contenedor OK). **REVIEW APPROVED** (3 NIT opcionales; el hook bloqueó al reviewer con TD-097 y no lo rodeó). **SECURITY APPROVED**: aviso de octubre de 2026 citado (CVE-2026-111497 Brotli con posible RCE, -105482 y -106069 HIGH) y 22.23.3 afectada; R5 cerrado (undici 6.29.1 corrige 3 HIGH y 2 MEDIUM). Hallazgos: S1 MEDIUM (salió 22.23.5 con 4 HIGH de servidores HTTPS, HTTP/2 y TLS que hoy no aplican; tarea fix a partir del 2026-11-25), S2–S4 LOW (TASK-040), S5 LOW (el `t42-run.sh` de devops fue un rodeo declarado y sin impacto; regla nueva en DEVELOPMENT_WORKFLOW). TD-097 sube a MEDIUM. Pendiente de la viñeta 3: `make test` y `make validate` del humano, y la CI tras el push. |
+| 2026-11-12 | /close-task TASK-042 en pausa: el humano aprueba toda la deuda propuesta (S1 MEDIUM → tarea fix a partir del 2026-11-25; S2, S3, S4 y el NIT del reviewer LOW → TASK-040; S5 LOW → regla en DEVELOPMENT_WORKFLOW en este cierre; TD-097 → MEDIUM, TASK-046; TD-128 ampliada). El cierre espera a que el humano ejecute `make test` y `make validate` (viñeta 3 del DoD). |
+| 2026-11-12 | TASK-042 → DONE. Informe `docs/reports/TASK-042.md`. El humano ejecuta `make test && make validate` (exit 0, sobre node:22.23.4 con digest fijado). CI pendiente del push del humano. TASK-049 sigue TODO (no antes del 2026-11-25; no pasa a READY). Sin cambios de instalación ni comandos. → docs-keeper. |
