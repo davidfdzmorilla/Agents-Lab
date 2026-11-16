@@ -272,7 +272,7 @@ Antigüedad mínima: cada dependencia nueva o actualizada usa una versión publi
 | `tailwindcss` / `@tailwindcss/postcss` | `4.3.3` | `web` (dev) | `@tailwindcss/postcss` trae `postcss`, que no se declara; TASK-007 |
 | `@types/react` / `@types/react-dom` | `19.3.0` | `web` (dev) | Tipos de `react`/`react-dom` 19.3; sin excepción (OD-042); TASK-007 |
 | `tsx` | `4.23.15` | `apps/worker` (`dependencies`); `packages/persistence` (dev, scripts `db:*`) | ADR-009 (OD-007): ejecuta el worker sin build en dev y en Docker. ADR-010: ejecuta `db:migrate`/`db:reset` de `persistence`; de runtime solo en `apps/worker` |
-| `zod` | `4.6.7` | `packages/core` (`dependencies`) | Compatible con `^3.25.32 \|\| ^4.2.0` (peer de `@langchain/langgraph` 1.5.1) y `^3.25.76 \|\| ^4` (dependencia de `@langchain/core` 1.2.18); `z.toJSONSchema` nativo; TASK-004 |
+| `zod` | `4.6.7` | `packages/core`, `packages/agents` (`dependencies`) | Compatible con `^3.25.32 \|\| ^4.2.0` (peer de `@langchain/langgraph` 1.5.1) y `^3.25.76 \|\| ^4` (dependencia de `@langchain/core` 1.2.18); `z.toJSONSchema` nativo; TASK-004. En `packages/agents` desde TASK-012 (OD-072 a: misma versión exacta, sin transitivas nuevas) |
 | `vitest` | `5.0.5` | raíz (dev) | Runner de tests (OD-009); engines `^22.12.0 \|\| ^24 \|\| >=26`; TASK-004 |
 | `@vitest/coverage-v8` | `5.0.5` | raíz (dev) | Cobertura v8; peer `vitest 5.0.5` exacto; TASK-004 |
 | `vite` | `8.3.4` | raíz (dev) | Peer obligatorio de `vitest` 5, declarado explícitamente; TASK-004 |

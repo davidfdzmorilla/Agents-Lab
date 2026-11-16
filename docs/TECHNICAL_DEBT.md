@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-11-12 (cierre TASK-042: TD-148 a TD-153 registradas; TD-045 PAID; TD-097 → MEDIUM y TD-128 ampliadas) |
+| Última actualización | 2026-11-16 (cierre TASK-012: TD-154 a TD-158 registradas; ninguna TD pagada) |
 
 Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, con fecha de pago. Si no tiene fecha de pago (hito), no es deuda: es un bug o una OPEN DECISION.
 
@@ -165,6 +165,11 @@ Deuda = decisión consciente de hacer algo peor de lo que ARCHITECTURE exige, co
 | TD-151 | S4 (security, TASK-042): no hay proceso de refresco periódico de los digests fijados; la imagen fijada no recibe parches de Debian y el tag es mutable. | LOW | TASK-042 (security) | TASK-040 | OPEN |
 | TD-152 | NIT del reviewer (ciclo 1 de TASK-042): imágenes con nombre terminado en «node» (p. ej. `mynode`) dan falso positivo; `head -n 1` solo valida la primera referencia de cada línea; `NODE_IMAGE?=` y `NODE_IMAGE+=` sin espacio dan «no node image reference». Fallan del lado seguro. | LOW | TASK-042 (reviewer) | TASK-040 | OPEN |
 | TD-153 | S5 (proceso, security, TASK-042): tras un bloqueo de hook, devops pasó a `t42-run.sh` una orden bloqueada (rodeo declarado, sin impacto). Regla añadida en `docs/DEVELOPMENT_WORKFLOW.md` §8: reformular la orden para que el hook la acepte por sus reglas o parar e informar citando el bloqueo literal; nunca pasar a un fichero la lógica bloqueada ni ejecutarla con `"$(cat …)"`. | LOW | TASK-042 (security) | TASK-042 (regla en este cierre) | PAID (TASK-042) |
+| TD-154 | Schemas de salida de `packages/agents` sin `maxItems`/`maxLength` (Zod acepta 1000 preguntas y un report de 5 MB, verificado). Falta en TASK-013: rechazar planes con más preguntas que llamadas restantes, `maxResultChars` antes de `JSON.parse`/Zod y de persistir, y `maxOutputTokens = min(...)` (L2 de security y reviewer; R5 del plan). | LOW | TASK-012 (security, reviewer) | TASK-013 u OD-002 | OPEN |
+| TD-155 | El veredicto debe salir solo de la salida validada del Critic: una salida inválida o ausente nunca cuenta como `pass`, y el Critic no revisa su propia salida (L3 de security). | LOW | TASK-012 (security) | TASK-013 | OPEN |
+| TD-156 | Huellas de los prompts duplicadas en `packages/agents/README.md:41-44` y `packages/agents/src/prompts.test.ts:12-21`, sin test que las compare. | LOW | TASK-012 (engine-dev, reviewer, tester) | Primer cambio de versión de un prompt, o TASK-013 | OPEN |
+| TD-157 | Proceso: el scope de una tarea debe contrastarse con role-guard al planificar (el lockfile de TASK-012 tuvo que pasar a devops porque role-guard no deja a engine-dev editar `pnpm-lock.yaml`). Registrada, no pagada. | LOW | TASK-012 (reviewer, security) | DEVELOPMENT_WORKFLOW (sin tarea de pago asignada; pendiente de asignar) | OPEN |
+| TD-158 | Proceso: el architect ejecutó `node --input-type=module -e` en el host durante el plan de TASK-012, contra la regla de que Node, pnpm y npx solo se ejecutan en contenedor (aprobada por el humano el 2026-11-13). | LOW | TASK-012 (plan, architect; security) | TASK-046 y TASK-048, y una regla deny que añade el humano | OPEN |
 
 ## Reglas
 

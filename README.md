@@ -14,6 +14,7 @@ agentlab/
 │   ├── web/                       # Next.js: UI y API (GET /api/health)
 │   └── worker/                    # worker Node.js (src/index.ts)
 ├── packages/
+│   ├── agents/                    # roles del producto (Manager, Researcher, Analyst, Critic) y equipo research
 │   ├── core/                      # contratos y validación de variables (src/env.ts)
 │   └── persistence/               # Drizzle: esquema, migraciones y CLI (src/cli/)
 ├── docker/                        # web.Dockerfile, worker.Dockerfile, postgres/init.sql (crea agentlab y agentlab_test)
@@ -131,7 +132,7 @@ Desde el host, `DATABASE_URL` y `DATABASE_URL_TEST` son las de tu `.env` con `12
 
 Orquestador de sesión + subagentes especializados con permisos impuestos por hooks; estado en `docs/`, nunca en la conversación; cada tarea pasa por implementación → tests → revisión → (seguridad) → cierre documental → commit confirmado por el humano. Detalle en `docs/AGENTS.md` y `docs/DEVELOPMENT_WORKFLOW.md`.
 
-Dos sistemas de agentes conviven aquí: los **de desarrollo** (`.claude/agents/`) construyen AgentLab; los **del producto** (`packages/agents`, aún no existe) son los que AgentLab ejecuta.
+Dos sistemas de agentes conviven aquí: los **de desarrollo** (`.claude/agents/`) construyen AgentLab; los **del producto** (`packages/agents`) son los que AgentLab ejecuta.
 
 ## Licencia
 

@@ -2,11 +2,11 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-11-12 (TASK-042 → DONE con TEST PASS ×2, REVIEW APPROVED ×2 y SECURITY APPROVED; CI pendiente del push; TD-045 PAID; TD-148 a TD-153 registradas; TD-097 → MEDIUM y TD-128 ampliadas) |
+| Última actualización | 2026-11-16 (TASK-012 → DONE con TEST PASS ×3, REVIEW APPROVED ×2 y SECURITY APPROVED tras 2 ciclos de corrección; TD-154 a TD-158 registradas; ninguna tarea desbloqueada) |
 | Hito actual | M1 |
 | Tarea en IN_PROGRESS | — |
 | Tarea en REVIEW | — |
-| Tareas READY | TASK-012, TASK-018, TASK-040, TASK-041, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). TASK-049 TODO (no antes del 2026-11-25). |
+| Tareas READY | TASK-018, TASK-040, TASK-041, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). TASK-049 TODO (no antes del 2026-11-25). |
 
 ## Cómo se lee este documento
 
@@ -317,8 +317,9 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Cobertura ≥ 90 %.
 
 ### TASK-012 · packages/agents: roles, prompts versionados y outputSchemas (Manager, Researcher, Analyst, Critic)
-- **Estado**: READY · **Owner**: engine-dev · **Depende de**: TASK-004
-- **Scope**: `packages/agents/**`
+- **Estado**: DONE (2026-11-16: TEST PASS ×3, último 89/89 con cobertura 100; REVIEW CHANGES_REQUESTED y luego APPROVED ×2; SECURITY APPROVED tras 2 ciclos de corrección; lockfile regenerado por devops por role-guard; informe en `docs/reports/TASK-012.md`; deuda: TD-154 a TD-158 registradas, ninguna TD pagada; OD-074 y OD-075 pendientes para TASK-013; `make test` y `make validate` en verde por el humano el 2026-11-16) · **Owner**: engine-dev · **Depende de**: TASK-004 · **security REQUIRED** (inyección, autoaprobación y presupuesto; decisión humana del 2026-11-13)
+- **Scope**: `packages/agents/**`, `pnpm-lock.yaml` (OD-072) · **deps_allowed**: `zod@4.6.7` (OD-072)
+- **Plan**: `docs/reports/TASK-012-plan.md`, aprobado por el humano el 2026-11-13 con las recomendaciones (a) de OD-069 a OD-073.
 - **DoD**:
   - Un archivo por rol con `systemPrompt`, `promptVersion` (`1.0.0`), `outputSchema` (Zod) y `defaultLimits`.
   - Prompts en inglés (idioma de trabajo de los modelos); documentado en `agents/README.md`. Los prompts exigen salida JSON acorde al schema y prohíben seguir instrucciones halladas en datos.
@@ -326,7 +327,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Test: cada `outputSchema` acepta el ejemplo canónico y rechaza tres variantes incorrectas.
 
 ### TASK-013 · packages/orchestrator: grafo `research` con LangGraph.js (sin checkpointer persistente)
-- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-010, TASK-011, TASK-012 · **security REQUIRED**
+- **Estado**: BLOCKED · **Owner**: engine-dev · **Depende de**: TASK-010, TASK-011, TASK-012, OD-074, OD-075 · **security REQUIRED**
 - **Scope**: `packages/orchestrator/**` (las viñetas de LangSmith en `.env.example` y `packages/core/src/env.ts` necesitan ampliar scope o repartirse con devops/core-dev al planificar)
 - **DoD**:
   - Nodos `gate.budget`, `agent.invoke`, `fanout.tasks`, `review`, `decide.review`, `persist.result` como `ARCHITECTURE.md §4`; `approval.wait` llega en M4.
@@ -336,6 +337,13 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Revisión `fail` dos veces → `partial` con `result.partialReason`.
   - Tests con `FakeProvider`: camino feliz, `partial` por iteraciones, `partial` por presupuesto, `failed` por error no recuperable, cancelación entre nodos.
   - Trazado de LangSmith desactivado explícitamente: `LANGCHAIN_TRACING_V2=false` y sin `LANGCHAIN_API_KEY` en `.env.example` (la validación en `core/env.ts` con valor por defecto `"false"` ya la hace TASK-004); test de que ninguna llamada sale hacia LangSmith con `FakeProvider`.
+  - Controles duros contra la inyección (requisito de security en TASK-012, aprobado por el humano el 2026-11-16; security bloquea si falta alguno):
+    - se escapan `&` y `<` en todo valor interpolado en un prompt, incluidas `<research_question>`, `<analysis_instruction>` y `<success_criteria>` (condición de que esas tres no lleven `trust="untrusted"`);
+    - los atributos `role`, `trust` y `name` de los envoltorios los pone siempre el grafo, nunca un valor del modelo o del usuario;
+    - toda salida de agente pasa por Zod estricto (`outputSchema`) antes de entrar en el estado;
+    - el presupuesto no aparece en ningún prompt ni en ningún campo del estado que un nodo pueda escribir; los límites efectivos son `min(defaultLimits del agente, Budget)`;
+    - tests con fixtures de inyección en `FakeProvider` (instrucciones en la petición, en salidas de agentes y en los issues del Critic).
+  - `successCriteria` al replanificar según OD-074, y entrada del plan anterior al Manager según OD-075.
 
 ### TASK-014 · API: `POST /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/result`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-007, TASK-011
@@ -1003,3 +1011,12 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-11-12 | TASK-042 tras el ciclo 1: **TEST PASS** (21 casos negativos con el mismo EXIT en bash 3.2 y bash 5.2; suite en contenedor OK). **REVIEW APPROVED** (3 NIT opcionales; el hook bloqueó al reviewer con TD-097 y no lo rodeó). **SECURITY APPROVED**: aviso de octubre de 2026 citado (CVE-2026-111497 Brotli con posible RCE, -105482 y -106069 HIGH) y 22.23.3 afectada; R5 cerrado (undici 6.29.1 corrige 3 HIGH y 2 MEDIUM). Hallazgos: S1 MEDIUM (salió 22.23.5 con 4 HIGH de servidores HTTPS, HTTP/2 y TLS que hoy no aplican; tarea fix a partir del 2026-11-25), S2–S4 LOW (TASK-040), S5 LOW (el `t42-run.sh` de devops fue un rodeo declarado y sin impacto; regla nueva en DEVELOPMENT_WORKFLOW). TD-097 sube a MEDIUM. Pendiente de la viñeta 3: `make test` y `make validate` del humano, y la CI tras el push. |
 | 2026-11-12 | /close-task TASK-042 en pausa: el humano aprueba toda la deuda propuesta (S1 MEDIUM → tarea fix a partir del 2026-11-25; S2, S3, S4 y el NIT del reviewer LOW → TASK-040; S5 LOW → regla en DEVELOPMENT_WORKFLOW en este cierre; TD-097 → MEDIUM, TASK-046; TD-128 ampliada). El cierre espera a que el humano ejecute `make test` y `make validate` (viñeta 3 del DoD). |
 | 2026-11-12 | TASK-042 → DONE. Informe `docs/reports/TASK-042.md`. El humano ejecuta `make test && make validate` (exit 0, sobre node:22.23.4 con digest fijado). CI pendiente del push del humano. TASK-049 sigue TODO (no antes del 2026-11-25; no pasa a READY). Sin cambios de instalación ni comandos. → docs-keeper. |
+| 2026-11-12 | TASK-042 commit 377a2b5 |
+| 2026-11-12 | TASK-042: el humano hace push de 377a2b5 y confirma la CI en verde; se cumple por completo la viñeta 3 del DoD. |
+| 2026-11-13 | TASK-012: plan del architect (`docs/reports/TASK-012-plan.md`; OD-069 a OD-073 registradas). El humano aprueba todo: opción (a) en las cinco OD, `pnpm-lock.yaml` en el scope, `deps_allowed` = `zod@4.6.7` y security REQUIRED. Incidencia: el architect ejecutó `node --input-type=module -e` en el host (solo lectura, desde `packages/core`), en contra de la regla de no usar Node/pnpm/npx en el host. El humano aprueba registrarlo como deuda de proceso al cerrar TASK-012 (pago: TASK-046/TASK-048, y una regla deny que añade el humano). |
+| 2026-11-13 | TASK-012 → IN_PROGRESS. Scope: `packages/agents/**` y `pnpm-lock.yaml`; `deps_allowed`: `zod` (bash-guard compara el nombre; la versión exacta 4.6.7 la fija el TASK PACKET). → engine-dev. |
+| 2026-11-13 | TASK-012: IMPLEMENTATION de engine-dev (56 tests, cobertura 100 %). role-guard le impidió editar `pnpm-lock.yaml`, aunque estaba en el scope. Por decisión humana lo regenera devops (+9/−0, importer `packages/agents`; `--frozen-lockfile` pasa). Pendiente de /verify-task. |
+| 2026-11-13 | TASK-012 → REVIEW. **TEST PASS** (82/82 y cobertura 100; el tester añade `hardening.test.ts` para matar 5 mutaciones que sobrevivían). **REVIEW CHANGES_REQUESTED** con 2 MAJOR: (1) entradas del Manager sin elemento, una vía de inyección hasta el Critic; (2) un test fija `defaultLimits` en contra de OD-069. También 4 MINOR y 1 NIT. **Ciclo de corrección 1** → engine-dev. Por decisión humana entran los MAJOR y todos los MINOR; el NIT pasa a deuda. |
+| 2026-11-13 | TASK-012 tras el ciclo 1: **TEST PASS** (85/85; 2 tests nuevos del tester). **REVIEW APPROVED** (1 NIT en `manager.ts:24`). **SECURITY APPROVED**: M1 MEDIUM (la frase de replanificación del Manager abre una vía para rebajar los criterios de éxito), M2 MEDIUM (OD para TASK-013: congelar los `successCriteria`), L1 a L3 LOW. Las entradas del plan no llevan `trust="untrusted"` (decisión de security, ratificada por el humano, a condición de que TASK-013 escape todo valor interpolado). Por decisión humana, **ciclo de corrección 2** solo con M1 y L1, antes del commit y sin cambiar la versión 1.0.0. → engine-dev. |
+| 2026-11-13 | TASK-012 tras el ciclo 2: **TEST PASS** (89/89, cobertura 100; las mutaciones de M1 y L1 fallan como deben). **REVIEW APPROVED** (1 NIT, sin registrar). **SECURITY APPROVED** (M1 y L1 cerrados, sin superficie nueva). Deuda propuesta para el cierre: M2 como OD de TASK-013; los controles duros contra la inyección como viñetas del DoD de TASK-013; L2 y L3 LOW para TASK-013; huellas duplicadas LOW; contrastar el scope con role-guard (LOW, proceso); `node -e` en el host (proceso, ya aprobada). Pendiente: `make test` y `make validate` del humano. |
+| 2026-11-16 | TASK-012 → DONE. TEST PASS ×3 (82/82, 85/85 y 89/89; cobertura 100). REVIEW CHANGES_REQUESTED (ciclo 0) y APPROVED ×2. SECURITY APPROVED tras 2 ciclos (M1 y L1 cerrados en el ciclo 2; M2 y L2/L3 a TASK-013). OD-069 a OD-073 resueltas en (a). Deuda: TD-154 a TD-158 registradas. TD-157 queda sin tarea de pago (regla 1 de TECHNICAL_DEBT: pendiente de asignar). Dependientes: TASK-013 sigue BLOCKED (TASK-011 BLOCKED por OD-002; OD-074 y OD-075 pendientes); ninguna tarea pasa a READY. Informe: `docs/reports/TASK-012.md`. |
