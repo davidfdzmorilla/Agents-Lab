@@ -32,7 +32,8 @@
       "tough-cookie>tldts": "7.4.19",
       "tldts>tldts-core": "7.4.19",
       "headers-polyfill>set-cookie-parser": "3.2.1",
-      "strip-ansi>ansi-regex": "6.4.0"
+      "strip-ansi>ansi-regex": "6.4.0",
+      "@google/genai>ws": "8.22.1"
     }
   },
   "devDependencies": {

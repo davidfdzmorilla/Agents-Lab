@@ -404,6 +404,15 @@ Decisiones que la especificación **no** fija. Los agentes de desarrollo no las 
 | OD-073 | ~~Idioma de los valores de salida de los agentes (SPEC fija el de los prompts, no el de las respuestas)~~ **RESUELTA (2026-11-13, humano)**: (a) los valores de salida van en el idioma de la petición del usuario; una línea más en las reglas de salida comunes (`OUTPUT_RULES`) | humano | M1 (TASK-012) |
 | OD-074 | Control duro de los `successCriteria` al replanificar tras un `fail` del Critic: el plan nuevo trae criterios nuevos, y el camino dato no confiable → issues del Critic → replanificación → criterios triviales → `pass` permitiría la autoaprobación (TASK-012, security M2 MEDIUM; hoy solo lo mitiga el prompt del Manager). Propuesta abajo | humano | M1 (antes del plan de TASK-013) |
 | OD-075 | ¿El Manager recibe al replanificar el plan anterior como `<agent_output role="manager" trust="untrusted">`? Implica el prompt del Manager `1.1.0` (TASK-012, reviewer; security no lo exige). Propuesta abajo | humano | M1 (antes del plan de TASK-013) |
+| OD-076 | ~~Dependencia del adaptador `gemini` (SDK de Google GenAI: versión y transitivas)~~ **RESUELTA (2026-11-16, humano)**: (a) `@google/genai` 2.32.0, versión exacta, en `deps_allowed` para devops, con override `@google/genai>ws: 8.22.1` (y `protobufjs>@types/node: 22.20.5` si `pnpm why` muestra dos versiones); subir a 3.x es tarea aparte (TASK-040) | architect → humano | M2 (TASK-018) |
+| OD-077 | ~~Cómo se cumple «tests con mock del SDK» del DoD de TASK-018~~ **RESUELTA (2026-11-16, humano)**: (a) msw 3.0.3 (ya en `devDependencies`) como transporte HTTP falso sobre el SDK real; la viñeta se lee «tests sin red con transporte HTTP falso (msw) sobre el SDK real»; `mapping`/`errors` se prueban sin servidor | architect → humano | M2 (TASK-018) |
+| OD-078 | ~~Capacidades «reales» de `gemini`: fijas o por configuración~~ **RESUELTA (2026-11-16, humano)**: (a) fijas en el adaptador según la tabla de §3.8 del plan de TASK-018, sin opción `capabilities`; afinar por modelo es TD-145 | architect → humano | M2 (TASK-018) |
+| OD-079 | ~~`baseUrl` del adaptador `gemini`~~ **RESUELTA (2026-11-16, humano)**: (a) constante `https://generativelanguage.googleapis.com/`, sin opción; `provider_configs.base_url` se ignora para `gemini` (lo documenta TASK-020) | architect → humano | M2 (TASK-018; documentación en TASK-020) |
+| OD-080 | ~~Lecturas de entorno (`GOOGLE_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) y `console.warn` que el SDK hace siempre~~ **RESUELTA (2026-11-16, humano)**: (a) se acepta y se registra como deuda LOW con pago en TASK-020/TASK-027 (como OD-064); los valores se descartan con `apiKey` explícito y `vertexai: false`, y el `worker` solo recibe `GEMINI_API_KEY` | architect → humano | M2 (TASK-018; pago en TASK-020/TASK-027) |
+| OD-081 | ~~`usage.outputTokens` de Gemini con thinking~~ **RESUELTA (2026-11-16, humano)**: (a) `outputTokens = candidatesTokenCount + (thoughtsTokenCount ?? 0)` si `candidatesTokenCount` existe; `null` si no (es lo que Gemini factura como salida) | architect → humano | M2 (TASK-018) |
+| OD-082 | ~~Mensajes que Gemini no representa tal cual (`system` después de un turno, o ningún turno `user`/`assistant`)~~ **RESUELTA (2026-11-16, humano)**: (a) `ProviderCapabilityError` antes de la red (SPEC §2.1: nunca degradar en silencio) | architect → humano | M2 (TASK-018) |
+| OD-083 | ~~Scope y reparto de TASK-018 (`src/gemini/**` de TASKS frente a role-guard)~~ **RESUELTA (2026-11-16, humano)**: (a) el de §4 del plan: devops hace el paso 0 (`packages/providers/package.json`, `package.json` raíz, `pnpm-lock.yaml`) y providers-dev escribe en `packages/providers/**` (incluidos `api-key.ts` y el import en `openai-compatible/provider.ts`); security REQUIRED | humano | M2 (TASK-018) |
+| OD-084 | ~~`usage.outputTokens` de Gemini cuando la respuesta trae `thoughtsTokenCount` pero no `candidatesTokenCount` (p. ej. `MAX_TOKENS` con thinking, R5 del plan de TASK-018); precisa OD-081, no la sustituye~~ **RESUELTA (2026-11-17, humano)**: (b) `outputTokens = (candidatesTokenCount ?? 0) + (thoughtsTokenCount ?? 0)` si al menos uno de los dos existe; `null` si no existe ninguno (los tokens de thinking se facturan como salida y el presupuesto no puede quedar por debajo) | reviewer → humano | M2 (TASK-018, ciclo de corrección 1) |
 
 OD-008 no existe a propósito: se mencionó en sesión como "no abierta" y su número no se reutiliza.
 
@@ -557,3 +566,55 @@ Origen: cierre de TASK-012 (2026-11-16): security (hallazgo M2, MEDIUM) y review
 - (b) No: se mantiene la entrada actual. Pros: cero cambios y `1.0.0` estable. Contras: replanificación de peor calidad, que gasta una iteración de `maxReviewIterations` con más riesgo de `partial`. Añadirlo más tarde es el mismo cambio MINOR, pero ya con runs guardados con `1.0.0`.
 - **Relación con OD-074.** Con OD-074 (a), las dos son independientes: aunque el Manager vea los criterios originales, el grafo los vuelve a poner, así que OD-075 solo afecta a la calidad. Con OD-074 (b), OD-075 (a) es casi obligatoria para que el Manager no duplique ni contradiga los originales. OD-074 importa más (lo dice security) y debe decidirse primero. Si salen (a) y (a), el prompt `1.1.0` conserva la línea 24.
 - **Recomendación del architect: (a)**, con la condición del scope. El cambio es pequeño, y TASK-013 es la primera tarea en la que la replanificación existe y se prueba. Si no se quiere ampliar el scope de TASK-013, (b) en M1 y registrar la mejora como deuda, con la tarea de pago que el humano elija.
+
+### OD-076 … OD-083 — Propuestas (~~`PROPUESTA — pendiente de decisión humana`~~ **RESUELTAS 2026-11-16, humano → (a) en las ocho**; se conserva un resumen de la propuesta como traza)
+
+Origen: plan de TASK-018 (`docs/reports/TASK-018-plan.md`, 2026-11-16, §9, donde se llamaban OD-A … OD-H). Opciones, pros y contras, fuentes web y verificaciones del SDK están en el plan; aquí solo el resumen. Respuesta literal del humano: «Aprobar todo (Recommended)».
+
+**OD-076 — Dependencia.**
+- (a) `@google/genai` 2.32.0 + override `@google/genai>ws: 8.22.1`. (b) Esperar a 3.0.0 (2026-11-20, major). (c) Sin SDK, `fetch` a REST: exige un ADR que sustituya ADR-003 §3.
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).** `deps_allowed: ["@google/genai@2.32.0"]` para devops.
+
+**OD-077 — «Tests con mock del SDK».**
+- (a) msw sobre el SDK real. (b) `vi.mock("@google/genai")`. (c) msw más `vi.mock` para errores que no salen por HTTP.
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).**
+
+**OD-078 — Capacidades.**
+- (a) Fijas según la tabla de §3.8 del plan. (b) Por configuración, como OpenAI-compatible. (c) Fijas con `maxContextTokens` configurable.
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).**
+
+**OD-079 — `baseUrl`.**
+- (a) Constante, sin opción. (b) Opción `baseUrl` validada (abre la salida de la clave a otro host, TD-141/TD-012).
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).**
+
+**OD-080 — Lecturas de entorno y `console.warn` del SDK.**
+- (a) Aceptar y registrar como deuda LOW (pago TASK-020/TASK-027). (b) Rodearlo parcheando el SDK o `process.env`. (c) OD-076 (c).
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).**
+
+**OD-081 — `outputTokens` con thinking.**
+- (a) `candidatesTokenCount + (thoughtsTokenCount ?? 0)`; `null` sin `candidatesTokenCount`. (b) Solo `candidatesTokenCount` (infravalora frente a `maxTotalTokens`).
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).**
+
+**OD-082 — Mensajes no representables.**
+- (a) `ProviderCapabilityError` antes de la red. (b) Mover los `system` intermedios a `systemInstruction`. (c) Convertirlos en turnos `user`.
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).**
+
+**OD-083 — Scope y reparto.**
+- (a) El de §4 del plan (paso 0 de devops; código de providers-dev en `packages/providers/**`). (b) Scope literal de TASKS (`src/gemini/**`), con `resolveKey` duplicada.
+- **Recomendación: (a).**
+- **Decisión (2026-11-16, humano): (a).** Security REQUIRED.
+
+### OD-084 — Propuesta (~~`PROPUESTA — pendiente de decisión humana`~~ **RESUELTA 2026-11-17, humano → (b)**; se conserva un resumen de la propuesta como traza)
+
+Origen: REVIEW de TASK-018, ciclo 0 (2026-11-17); decidida y aplicada en el ciclo de corrección 1. Con OD-081 (a), una respuesta que solo trae `thoughtsTokenCount` (caso `MAX_TOKENS` con thinking, R5 del plan de TASK-018) da `outputTokens: null` aunque esos tokens se facturan, y el presupuesto descuenta menos de lo consumido. Precisa OD-081; no la sustituye. Respuesta literal del humano: «Decidir (b) ya, en el ciclo 1».
+
+**OD-084 — `outputTokens` sin `candidatesTokenCount`.**
+- (a) Mantener OD-081 tal cual: `null` si falta `candidatesTokenCount`. (b) `outputTokens = thoughtsTokenCount` cuando faltan los de candidates.
+- **Decisión (2026-11-17, humano): (b).** Regla completa resultante: `outputTokens = (candidatesTokenCount ?? 0) + (thoughtsTokenCount ?? 0)` si al menos uno de los dos existe; `null` si no existe ninguno.

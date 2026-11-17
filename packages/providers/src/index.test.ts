@@ -6,7 +6,10 @@ import * as testing from "./testing/index.js";
 
 describe("public API", () => {
   it("exports only the adapter from the index and the fake only from ./testing", () => {
-    expect(Object.keys(providers)).toEqual(["OpenAICompatibleProvider"]);
+    expect(Object.keys(providers).sort()).toEqual([
+      "GeminiProvider",
+      "OpenAICompatibleProvider",
+    ]);
     expect(Object.keys(testing)).toEqual(["FakeProvider"]);
   });
 

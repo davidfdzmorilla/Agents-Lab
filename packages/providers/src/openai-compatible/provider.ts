@@ -1,9 +1,7 @@
 import OpenAI from "openai";
 import {
-  ProviderAuthError,
   ProviderResponseError,
   ProviderTimeoutError,
-  isApiKeyEnvName,
   type GenerateRequest,
   type GenerateResponse,
   type ModelInfo,
@@ -11,12 +9,12 @@ import {
   type ProviderCapabilities,
   type SecretResolver,
 } from "@agentlab/core";
+import { resolveApiKey } from "../api-key.js";
 import { assertCapabilities } from "../capabilities.js";
 import { toProviderError } from "./errors.js";
 import { fromChatCompletion, toChatParams } from "./mapping.js";
 
 const LIST_MODELS_TIMEOUT_MS = 10_000;
-const MAX_ENV_NAME_LENGTH = 40;
 // The SDK refuses to build without a key; with no key configured (Ollama) this fixed
 // non-secret marker satisfies it and the Authorization header is then removed.
 const NO_KEY_MARKER = "none";
@@ -41,26 +39,6 @@ function assertHttpUrl(id: string, baseUrl: string): void {
   }
 }
 
-function resolveKey(
-  id: string,
-  apiKeyEnv: string,
-  secretResolver: SecretResolver,
-): string {
-  const key = secretResolver(apiKeyEnv);
-  if (key === undefined || key === "") {
-    // A malformed api_key_env could be a pasted key, so it is only quoted when it is a
-    // well-formed variable name (same rule as InvalidApiKeyEnvError).
-    const named =
-      isApiKeyEnvName(apiKeyEnv) && apiKeyEnv.length <= MAX_ENV_NAME_LENGTH
-        ? `environment variable ${apiKeyEnv} is not set, empty or not allowed`
-        : "the configured api_key_env is not a valid or allowed variable name";
-    throw new ProviderAuthError(
-      `Provider "${id}" has no usable API key: ${named}`,
-    );
-  }
-  return key;
-}
-
 export class OpenAICompatibleProvider implements ModelProvider {
   readonly id: string;
   readonly capabilities: ProviderCapabilities;
@@ -71,7 +49,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     const apiKey =
       options.apiKeyEnv === null
         ? NO_KEY_MARKER
-        : resolveKey(options.id, options.apiKeyEnv, options.secretResolver);
+        : resolveApiKey(options.id, options.apiKeyEnv, options.secretResolver);
 
     this.id = options.id;
     this.capabilities = Object.freeze({ ...options.capabilities });

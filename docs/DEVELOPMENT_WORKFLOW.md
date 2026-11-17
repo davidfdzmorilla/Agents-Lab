@@ -33,6 +33,7 @@ El comando `/status` ejecuta exactamente esto y devuelve un resumen de ≤ 15 l�
 9. **Tests contra PostgreSQL real**, nunca SQLite ni mocks del ORM para repositorios.
 10. **Informes, no volcados.** Un subagente devuelve el informe estructurado de §5; nunca pega ficheros enteros ni logs completos (máx. 30 líneas de log relevante).
 11. **Validación del architect fuera del repo.** El architect puede validar en un directorio temporal fuera del repo y debe decirlo en el informe PLAN; dentro del repo, nunca sin `deps_allowed`.
+12. **Scope contrastado con role-guard al planificar** (TD-157). Al planificar (`/next-task`, plan del architect) cada ruta del scope se cruza con `.claude/hooks/role-guard.sh` y con el rol del owner. Si el rol no puede editar un fichero del scope (p. ej. `pnpm-lock.yaml` para `engine-dev`, TASK-012), el plan asigna ese fichero a un rol que sí puede (devops) o lo pone a decisión humana antes de ejecutar. No se descubre en IMPLEMENTATION.
 
 ## 4. TASK PACKET
 
@@ -94,7 +95,7 @@ Tipos: `feat`, `fix`, `test`, `docs`, `chore`, `refactor`, `ci`, `build`. Scope 
 | Reviewer `CHANGES_REQUESTED` con BLOCKER/MAJOR | Igual que arriba. Los MINOR/NIT se pueden aceptar como deuda LOW si el humano lo aprueba. |
 | Security `BLOCKED` | Tarea vuelve a `IN_PROGRESS`; no hay cierre posible sin `APPROVED`. |
 | Hook bloquea una edición | El owner lo reporta; el Orquestador revisa el scope. Nunca se desactiva el hook. |
-| Hook bloquea un comando (bash-guard) | Tras un bloqueo, reformular la orden para que el hook la acepte por sus propias reglas, o parar e informar citando el bloqueo literal. Nunca pasar a un fichero (script) la lógica bloqueada, ni ejecutarla con `"$(cat …)"`. Regla de TASK-042 (TD-153). |
+| Hook bloquea un comando (bash-guard) | Tras un bloqueo, reformular la orden para que el hook la acepte por sus propias reglas, o parar e informar citando el bloqueo literal. Nunca pasar a un fichero (script) la lógica bloqueada, ni ejecutarla con `"$(cat …)"`, ni volcarla a un fichero para filtrarla después (TASK-018: `git diff … | grep` bloqueado, volcado al scratchpad por el reviewer). Reformular solo si la orden nueva no hace lo que el hook bloquea; si no, parar y citar el bloqueo. Regla de TASK-042 (TD-153), reforzada en TASK-018 (TD-169). |
 | Dependencia nueva necesaria | Owner lo reporta sin instalarla; humano aprueba; Orquestador añade a `deps_allowed` y relanza. |
 | OPEN DECISION descubierta | `/open-decision` la registra en SPEC §13; si bloquea, tarea `BLOCKED` y se pasa a la siguiente READY. |
 | Worker/DB no arranca en tests | `devops` primero; nunca se "arregla" un test para que pase sin DB. |

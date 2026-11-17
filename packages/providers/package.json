@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@agentlab/core": "workspace:*",
+    "@google/genai": "2.32.0",
     "openai": "7.45.1"
   },
   "devDependencies": {

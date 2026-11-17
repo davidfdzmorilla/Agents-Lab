@@ -2,11 +2,11 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-11-16 (TASK-012 → DONE con TEST PASS ×3, REVIEW APPROVED ×2 y SECURITY APPROVED tras 2 ciclos de corrección; TD-154 a TD-158 registradas; ninguna tarea desbloqueada) |
+| Última actualización | 2026-11-17 (TASK-018 → DONE con TEST PASS ×2, REVIEW APPROVED tras 1 ciclo de corrección y SECURITY APPROVED ×2; TD-159 a TD-169 registradas; TD-157 y TD-169 PAID; TASK-019 desbloqueada) |
 | Hito actual | M1 |
 | Tarea en IN_PROGRESS | — |
 | Tarea en REVIEW | — |
-| Tareas READY | TASK-018, TASK-040, TASK-041, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). TASK-049 TODO (no antes del 2026-11-25). |
+| Tareas READY | TASK-019, TASK-040, TASK-041, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). TASK-049 TODO (no antes del 2026-11-25). |
 
 ## Cómo se lee este documento
 
@@ -392,11 +392,24 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 ## M2 — Modelos
 
 ### TASK-018 · Adaptador Gemini (SDK Google GenAI)
-- **Estado**: READY · **Owner**: providers-dev · **Depende de**: TASK-010 · **Scope**: `packages/providers/src/gemini/**`
-- **DoD**: misma superficie que OpenAI-compatible; capacidades declaradas reales; mapeo de errores; tests con mock del SDK.
+- **Estado**: DONE (2026-11-17; informe `docs/reports/TASK-018.md`) · **Owner**: providers-dev (paso 0 de manifiestos y lockfile: devops) · **Depende de**: TASK-010 · **security REQUIRED** (secretos, entorno del SDK, SSRF, dependencias e imagen del worker)
+- **Scope** (OD-083): devops → `packages/providers/package.json`, `package.json` (raíz, solo `pnpm.overrides`), `pnpm-lock.yaml`; providers-dev → `packages/providers/src/gemini/**`, `packages/providers/src/api-key.ts`, `packages/providers/src/api-key.test.ts`, `packages/providers/src/openai-compatible/provider.ts` (solo el import), `packages/providers/src/index.ts`, `packages/providers/src/index.test.ts`; architect en el cierre → `docs/ARCHITECTURE.md` §9 · **deps_allowed**: `@google/genai@2.32.0` (OD-076; override `@google/genai>ws: 8.22.1`)
+- **Plan**: `docs/reports/TASK-018-plan.md`, aprobado por el humano el 2026-11-16 (OD-076 a OD-083 resueltas en (a)).
+- **DoD** (refinado, plan §7):
+  - `GeminiProvider` implementa `ModelProvider` de `core` y se exporta desde `@agentlab/providers` con opciones `{ id, apiKeyEnv, secretResolver }`; no se exporta ninguna ruta interna.
+  - La clave se obtiene solo con `secretResolver(apiKeyEnv)`, una vez, en la construcción; si falta o está vacía, `ProviderAuthError` en `new` sin peticiones. Viaja en `x-goog-api-key`, nunca en la URL. Ningún fichero de `src/**` contiene `process.env`.
+  - Cliente con `vertexai: false`, `apiVersion: "v1beta"`, `httpOptions.baseUrl` constante (OD-079) y sin `retryOptions`; test de que las variables `GOOGLE_*`/`GEMINI_*` del entorno no cambian destino ni clave ni activan Vertex.
+  - Cada `generate` hace como máximo una petición HTTP (sin reintentos del SDK, sin AFC, `automaticContinuation: false`), con test.
+  - Capacidades fijas según plan §3.8 (OD-078); `ProviderCapabilityError` antes de la red para capacidades ausentes y para mensajes no representables (OD-082).
+  - Errores según plan §3.6: `retryable` correcto, `retryAfterMs` desde `RetryInfo`, mensaje de plantilla fija sin cuerpo, URL ni `cause`; la cancelación relanza `signal.reason`; el plazo propio da `ProviderTimeoutError`.
+  - `usage` según OD-081 (`candidatesTokenCount + thoughtsTokenCount`); `costReported` siempre `null`; `raw` nunca.
+  - El canario de la clave no aparece en errores, instancia ni `console` (`no-leak.test.ts`, que falla si se copia el `message` del SDK).
+  - Tests sin red real con msw sobre el SDK real (OD-077) y sin timers reales; cobertura del paquete ≥ 90 %.
+  - `@google/genai` `2.32.0` exacta; toda transitiva nueva o cambiada con ≥ 14 días o fijada por override, con evidencia (fecha del registro y `pnpm why`); `pnpm install --frozen-lockfile --ignore-scripts` en verde.
+  - ARCHITECTURE §9 actualizado en el cierre (architect).
 
 ### TASK-019 · ProviderRegistry, comprobación de capacidades y reintentos con backoff
-- **Estado**: BLOCKED · **Owner**: providers-dev · **Depende de**: TASK-018 · **Scope**: `packages/providers/**`
+- **Estado**: READY · **Owner**: providers-dev · **Depende de**: TASK-018 · **Scope**: `packages/providers/**`
 - **DoD**: `ProviderCapabilityError` antes de red; backoff exponencial + jitter solo para `retryable`; respeta `retryAfterMs`; máximo de reintentos configurable y descontado del presupuesto de llamadas.
 
 ### TASK-020 · `GET /api/providers` y selección por agente desde `provider_configs`
@@ -1020,3 +1033,12 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-11-13 | TASK-012 tras el ciclo 1: **TEST PASS** (85/85; 2 tests nuevos del tester). **REVIEW APPROVED** (1 NIT en `manager.ts:24`). **SECURITY APPROVED**: M1 MEDIUM (la frase de replanificación del Manager abre una vía para rebajar los criterios de éxito), M2 MEDIUM (OD para TASK-013: congelar los `successCriteria`), L1 a L3 LOW. Las entradas del plan no llevan `trust="untrusted"` (decisión de security, ratificada por el humano, a condición de que TASK-013 escape todo valor interpolado). Por decisión humana, **ciclo de corrección 2** solo con M1 y L1, antes del commit y sin cambiar la versión 1.0.0. → engine-dev. |
 | 2026-11-13 | TASK-012 tras el ciclo 2: **TEST PASS** (89/89, cobertura 100; las mutaciones de M1 y L1 fallan como deben). **REVIEW APPROVED** (1 NIT, sin registrar). **SECURITY APPROVED** (M1 y L1 cerrados, sin superficie nueva). Deuda propuesta para el cierre: M2 como OD de TASK-013; los controles duros contra la inyección como viñetas del DoD de TASK-013; L2 y L3 LOW para TASK-013; huellas duplicadas LOW; contrastar el scope con role-guard (LOW, proceso); `node -e` en el host (proceso, ya aprobada). Pendiente: `make test` y `make validate` del humano. |
 | 2026-11-16 | TASK-012 → DONE. TEST PASS ×3 (82/82, 85/85 y 89/89; cobertura 100). REVIEW CHANGES_REQUESTED (ciclo 0) y APPROVED ×2. SECURITY APPROVED tras 2 ciclos (M1 y L1 cerrados en el ciclo 2; M2 y L2/L3 a TASK-013). OD-069 a OD-073 resueltas en (a). Deuda: TD-154 a TD-158 registradas. TD-157 queda sin tarea de pago (regla 1 de TECHNICAL_DEBT: pendiente de asignar). Dependientes: TASK-013 sigue BLOCKED (TASK-011 BLOCKED por OD-002; OD-074 y OD-075 pendientes); ninguna tarea pasa a READY. Informe: `docs/reports/TASK-012.md`. |
+| 2026-11-16 | TASK-012 commit a0a1c52 |
+| 2026-11-16 | Push de a0a1c52 por el humano. TASK-018: plan del architect (`docs/reports/TASK-018-plan.md`) aprobado por el humano («Aprobar todo»): OD-076 a OD-083 resueltas en (a); `@google/genai@2.32.0` con override `ws` 8.22.1; scope ampliado (OD-083: paso 0 de devops con manifiestos y lockfile, código de providers-dev); security REQUIRED; DoD refinado. |
+| 2026-11-16 | TASK-018 → IN_PROGRESS. Paso 0 a devops (manifiestos + lockfile, deps_allowed `@google/genai@2.32.0`); después providers-dev. |
+| 2026-11-16 | TASK-018 IMPLEMENTATION: devops paso 0 (`@google/genai` 2.32.0, override `ws` 8.22.1, lockfile +304/−14, 36 paquetes nuevos ≥ 14 días; peers opcionales de openai/langsmith resueltos sin cambio de versiones). providers-dev: `GeminiProvider` + `api-key.ts`; 209/209 tests (100 nuevos), cobertura 100/99.22; regla 13 demostrada. Siguiente: `/verify-task`. |
+| 2026-11-17 | TASK-018 → REVIEW (`/verify-task`: tester → reviewer → security). |
+| 2026-11-17 | TASK-018: **TEST PASS** (209/209, 10/10 viñetas aplicables, 52 mutaciones, solo 2 equivalentes sobreviven, sin red con `--network none`). **REVIEW CHANGES_REQUESTED**: MAJOR (200 mal formado clasificado como conexión `retryable`, errors.ts:87-91 / mapping.ts:114-115), MINOR (`clearTimeout` de `listModels` sin test), 2 NIT de tests. Decisión humana: ciclo de corrección 1 con MAJOR + MINOR + NITs; OD-084 (tokens de razonamiento sin `candidatesTokenCount`) resuelta (b) ya. Incidencia de proceso: el reviewer volcó a fichero un `git diff` bloqueado por bash-guard (falso positivo, solo lectura) → deuda de proceso. TASK-018 → IN_PROGRESS (ciclo 1). |
+| 2026-11-17 | TASK-018 ciclo 1 (providers-dev): MAJOR (solo `TypeError "fetch failed"` con `cause` es conexión `retryable`; partes no objeto → `ProviderResponseError`), MINOR, 2 NIT y OD-084 (b) corregidos; 223/223, cobertura 100/99.25; mutaciones muertas. TASK-018 → REVIEW. |
+| 2026-11-17 | TASK-018 tras el ciclo 1: **TEST PASS** (223/223, cobertura 100/99.25, `--network none`). **REVIEW APPROVED** (3 NIT). **SECURITY APPROVED** en 2 pasadas (la 1.ª se paró por un falso positivo de bash-guard; decisión humana: seguir sin la sonda de carga): 0 GHSA en las 36 transitivas, mínima 17 días; LOW redirección con `x-goog-api-key` (TD-141/TASK-020) y `retryAfterMs` sin tope (TASK-019); MEDIUM peers opcionales de openai/langsmith en las imágenes (migrate con `google-auth-library` y `ws` cargables) y comprobación pendiente de imports de migrate. Pendiente: `make test` y `make validate` del humano. |
+| 2026-11-17 | TASK-018 → DONE. `make test` y `make validate` en verde (humano, 2026-11-17). Informe en `docs/reports/TASK-018.md`. Veredictos: TEST PASS ×2 (223/223); REVIEW CHANGES_REQUESTED (ciclo 0) → APPROVED (ciclo 1); SECURITY APPROVED ×2. Deuda: TD-159 a TD-169 registradas; TD-157 y TD-169 PAID; TD-141 ampliada (Gemini). Desbloqueada: TASK-019 (BLOCKED → READY). |
