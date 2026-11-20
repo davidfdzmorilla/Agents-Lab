@@ -110,10 +110,61 @@ describe("toProviderError", () => {
     },
   );
 
-  it("maps connection errors to a retryable ProviderResponseError", () => {
+  it.each(["ECONNREFUSED", "ECONNRESET", "UND_ERR_CONNECT_TIMEOUT"])(
+    "maps a connection error caused by %s to a retryable ProviderResponseError",
+    (code) => {
+      const cause = new TypeError("fetch failed", {
+        cause: Object.assign(new Error("x"), { code }),
+      });
+      const e = toProviderError(new APIConnectionError({ cause }), "p", NOW);
+      expect(e).toBeInstanceOf(ProviderResponseError);
+      expect(e.retryable).toBe(true);
+      expect(e.message).toBe('Provider "p" connection failed');
+      expect(e.cause).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["a TLS certificate code", { code: "CERT_HAS_EXPIRED" }],
+    ["ENOTFOUND", { code: "ENOTFOUND" }],
+    ["an unknown code", { code: "EWHATEVER" }],
+    ["no code", {}],
+  ])(
+    "maps a connection error with %s to a non-retryable ProviderResponseError",
+    (_n, props) => {
+      const cause = new TypeError("fetch failed", {
+        cause: Object.assign(new Error("x"), props),
+      });
+      const e = toProviderError(new APIConnectionError({ cause }), "p", NOW);
+      expect(e).toBeInstanceOf(ProviderResponseError);
+      expect(e.retryable).toBe(false);
+      expect(e.message).toBe('Provider "p" connection failed');
+      expect(e.cause).toBeUndefined();
+    },
+  );
+
+  it("maps a connection error without a cause to a non-retryable ProviderResponseError", () => {
     const e = toProviderError(new APIConnectionError({}), "p", NOW);
     expect(e).toBeInstanceOf(ProviderResponseError);
+    expect(e.retryable).toBe(false);
+  });
+
+  it("maps a body cut mid-stream (terminated + UND_ERR_SOCKET) to a retryable connection error", () => {
+    const err = new TypeError("terminated", {
+      cause: Object.assign(new Error("x"), { code: "UND_ERR_SOCKET" }),
+    });
+    const e = toProviderError(err, "p", NOW);
+    expect(e).toBeInstanceOf(ProviderResponseError);
     expect(e.retryable).toBe(true);
+    expect(e.message).toBe('Provider "p" connection failed');
+    expect(e.cause).toBeUndefined();
+  });
+
+  it("maps terminated without a known code to a non-retryable connection error", () => {
+    const e = toProviderError(new TypeError("terminated"), "p", NOW);
+    expect(e).toBeInstanceOf(ProviderResponseError);
+    expect(e.retryable).toBe(false);
+    expect(e.message).toBe('Provider "p" connection failed');
   });
 
   it("maps an APIError without status and unknown values to a non-retryable ProviderResponseError", () => {

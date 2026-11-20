@@ -161,23 +161,29 @@ describe("canary key never leaves through errors", () => {
       "a null part",
       () => HttpResponse.json({ candidates: [{ content: { parts: [null] } }] }),
     ],
-  ])("a malformed 200 with %s leaks nothing", async (_name, body) => {
-    server.use(
-      route("post", GENERATE_PATH, (req) => {
-        const res = body();
-        res.headers.set("x-echo-key", req.headers.get("x-goog-api-key") ?? "");
-        return res;
-      }),
-    );
-    const err = await provider
-      .generate(request(), live)
-      .catch((e: unknown) => e);
-    expect(received[0]?.headers.get("x-goog-api-key")).toBe(CANARY);
-    expect(err).toBeInstanceOf(Error);
-    expect(err).toHaveProperty("retryable", false);
-    for (const text of surfaces(err)) expect(text).not.toContain(CANARY);
-    expect((err as Error).cause).toBeUndefined();
-  });
+  ])(
+    "a malformed 200 with %s is not retryable and carries no cause",
+    async (_name, body) => {
+      server.use(
+        route("post", GENERATE_PATH, (req) => {
+          const res = body();
+          res.headers.set(
+            "x-echo-key",
+            req.headers.get("x-goog-api-key") ?? "",
+          );
+          return res;
+        }),
+      );
+      const err = await provider
+        .generate(request(), live)
+        .catch((e: unknown) => e);
+      expect(received[0]?.headers.get("x-goog-api-key")).toBe(CANARY);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).toHaveProperty("retryable", false);
+      for (const text of surfaces(err)) expect(text).not.toContain(CANARY);
+      expect((err as Error).cause).toBeUndefined();
+    },
+  );
 });
 
 describe("canary key never appears on the instance", () => {

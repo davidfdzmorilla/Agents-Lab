@@ -140,6 +140,8 @@ class BudgetGuard {
 
 `reserve` se llama **siempre antes** de la operación. Si el proveedor no informa uso, `commit` registra `null` y la UI muestra "no informado"; nunca se estima.
 
+Las llamadas a modelo las reserva `generateWithRetry` de `providers`, una por intento; el orquestador no reserva por su cuenta (OD-087 (a)). Cada intento, el primero incluido, llama a `reserve("model")` antes de su `generate`; si el orquestador reservara también, cada llamada contaría dos veces. En producción siempre se le pasa el `BudgetGuard` real (lo cumple por tipado estructural como `CallBudget`).
+
 ### 3.4 Eventos (`core`)
 
 Discriminated union `RunEvent` con `type`, `runId`, `seq`, `ts`, `payload`. `seq` lo asigna `EventsRepository.append` en una transacción que bloquea la fila del run y calcula `MAX+1` (OD-022). SQL probado en PostgreSQL 16.15 (plan de TASK-005, V2: 3 sesiones concurrentes × 200 inserciones, `seq` 1..600 contiguo y sin errores):

@@ -142,16 +142,46 @@ describe("toGeminiProviderError", () => {
     },
   );
 
-  it("maps a fetch TypeError to a retryable connection error without cause", () => {
-    const err = toGeminiProviderError(
-      new TypeError("fetch failed", { cause: new Error("ECONNREFUSED") }),
-      "g",
-    );
-    expect(err).toBeInstanceOf(ProviderResponseError);
-    expect(err.retryable).toBe(true);
-    expect(err.cause).toBeUndefined();
-    expect(err.message).toBe('Provider "g" connection failed');
-  });
+  it.each([
+    ["fetch failed", "ECONNREFUSED"],
+    ["fetch failed", "UND_ERR_CONNECT_TIMEOUT"],
+    ["terminated", "UND_ERR_SOCKET"],
+  ])(
+    "maps TypeError(%s) caused by %s to a retryable connection error without cause",
+    (message, code) => {
+      const err = toGeminiProviderError(
+        new TypeError(message, {
+          cause: Object.assign(new Error("x"), { code }),
+        }),
+        "g",
+      );
+      expect(err).toBeInstanceOf(ProviderResponseError);
+      expect(err.retryable).toBe(true);
+      expect(err.cause).toBeUndefined();
+      expect(err.message).toBe('Provider "g" connection failed');
+    },
+  );
+
+  it.each([
+    ["a TLS certificate code", { code: "CERT_HAS_EXPIRED" }],
+    ["ENOTFOUND", { code: "ENOTFOUND" }],
+    ["an unknown code", { code: "EWHATEVER" }],
+    ["no code", {}],
+  ])(
+    "maps a fetch failure with %s to a non-retryable connection error",
+    (_n, props) => {
+      const err = toGeminiProviderError(
+        new TypeError("fetch failed", {
+          cause: Object.assign(new Error("x"), props),
+        }),
+        "g",
+      );
+      expect(err).toBeInstanceOf(ProviderResponseError);
+      expect(err.retryable).toBe(false);
+      expect(err.cause).toBeUndefined();
+      expect(err.message).toBe('Provider "g" connection failed');
+    },
+  );
 
   it.each([
     ["without a cause", new TypeError("fetch failed")],

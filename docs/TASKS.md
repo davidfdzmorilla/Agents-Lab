@@ -2,11 +2,11 @@
 
 | Campo | Valor |
 |---|---|
-| Última actualización | 2026-11-17 (TASK-018 → DONE con TEST PASS ×2, REVIEW APPROVED tras 1 ciclo de corrección y SECURITY APPROVED ×2; TD-159 a TD-169 registradas; TD-157 y TD-169 PAID; TASK-019 desbloqueada) |
+| Última actualización | 2026-11-19 (TASK-019 → DONE con TEST PASS, REVIEW APPROVED y SECURITY APPROVED, sin ciclos de corrección; TD-170 a TD-177 registradas; TD-161, TD-165, TD-167 y TD-175 PAID; TD-145 solo en TASK-022; TASK-020 desbloqueada; TASK-021 sigue BLOCKED por OD-005) |
 | Hito actual | M1 |
 | Tarea en IN_PROGRESS | — |
 | Tarea en REVIEW | — |
-| Tareas READY | TASK-019, TASK-040, TASK-041, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). TASK-049 TODO (no antes del 2026-11-25). |
+| Tareas READY | TASK-020, TASK-040, TASK-041, TASK-043. TASK-046 BLOCKED (depende de M1 y de TASK-048). TASK-049 TODO (no antes del 2026-11-25). |
 
 ## Cómo se lee este documento
 
@@ -314,6 +314,7 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - Límites de concurrencia como semáforo reutilizable (`acquire/release`) probado con promesas concurrentes.
   - `ToolAuthorizer.check(agentDef, toolName, sensitivity)` → `allowed | denied(reason) | needs_approval`.
   - Ningún método permite elevar un límite una vez creado el guard (propiedades `readonly`, test que lo intenta).
+  - `BudgetGuard` cumple por tipado estructural el puerto `CallBudget { reserve(kind: "model"): void }` de `@agentlab/providers` (TASK-019). Si añade `commit`, `CallBudget` crece de forma aditiva (R1 del plan de TASK-019; deuda de TASK-019, aprobada el 2026-11-19).
   - Cobertura ≥ 90 %.
 
 ### TASK-012 · packages/agents: roles, prompts versionados y outputSchemas (Manager, Researcher, Analyst, Critic)
@@ -344,6 +345,12 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
     - el presupuesto no aparece en ningún prompt ni en ningún campo del estado que un nodo pueda escribir; los límites efectivos son `min(defaultLimits del agente, Budget)`;
     - tests con fixtures de inyección en `FakeProvider` (instrucciones en la petición, en salidas de agentes y en los issues del Critic).
   - `successCriteria` al replanificar según OD-074, y entrada del plan anterior al Manager según OD-075.
+  - Llamadas a modelo con `generateWithRetry` (TASK-019; OD-087 (a)). Siempre recibe el `BudgetGuard` real, nunca un `reserve` vacío, y el grafo no reserva llamadas a modelo por su cuenta. Test de que N reintentos descuentan N+1 llamadas del presupuesto del run (deuda de TASK-019, security, aprobada el 2026-11-19).
+  - Endurecer la política de reintentos en `packages/providers/src/retry.ts` antes de que pueda llegar de configuración: `resolvePolicy` rechaza `maxDelayMs` y `maxRetryAfterMs` mayores que 2 147 483 647, `maxRetries` tiene un tope duro (≤ 10) y `backoffMs` se acota a [0, `maxDelayMs`]. Con `random` fuera de [0,1) no hay esperas negativas ni NaN. Deuda LOW de TASK-019 (security y reviewer); exige ampliar el scope a `packages/providers/**` y repartirlo con providers-dev al planificar.
+  - En esa misma ampliación de providers se pagan TD-172, TD-173 y TD-174:
+    - TD-172: `openai-compatible/errors.ts:66` exige `isRecord(cause)`, igual que Gemini.
+    - TD-173: `retry-extra.test.ts` pasa a `retry.test.ts` y el caso de `:537` mata M13.
+    - TD-174: en `network-failure.ts` decide el primer eslabón con `code`.
 
 ### TASK-014 · API: `POST /api/runs`, `GET /api/runs/:id`, `GET /api/runs/:id/result`
 - **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-007, TASK-011
@@ -409,11 +416,24 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
   - ARCHITECTURE §9 actualizado en el cierre (architect).
 
 ### TASK-019 · ProviderRegistry, comprobación de capacidades y reintentos con backoff
-- **Estado**: READY · **Owner**: providers-dev · **Depende de**: TASK-018 · **Scope**: `packages/providers/**`
-- **DoD**: `ProviderCapabilityError` antes de red; backoff exponencial + jitter solo para `retryable`; respeta `retryAfterMs`; máximo de reintentos configurable y descontado del presupuesto de llamadas.
+- **Estado**: DONE (2026-11-19; informe `docs/reports/TASK-019.md`; plan aprobado por el humano el 2026-11-18: `docs/reports/TASK-019-plan.md`; OD-085 (b), OD-086 (a), OD-087 (a)) · **Owner**: providers-dev · **Depende de**: TASK-018 · **Scope**: `packages/providers/**` · **security REQUIRED** (reintentos y presupuesto, tope de `retryAfterMs`, reclasificación TLS) · **Paga**: TD-161, TD-165, TD-167
+- **DoD** (literal del plan §5):
+  1. `ProviderRegistry` se construye con `ModelProvider[]` y usa `provider.id` como clave (OD-057). Un `id` vacío o repetido da `ProviderResponseError` (`retryable: false`) en el constructor. `get(id)` devuelve el proveedor o `undefined`; `list()` respeta el orden de alta; no hay alta posterior. Sin DB ni `provider_configs`.
+  2. `createProvider(config, { secretResolver })` construye `OpenAICompatibleProvider` o `GeminiProvider` según `config.type` y propaga sus errores de construcción (`ProviderAuthError`, `baseUrl` inválida). Ninguna petición HTTP al construir (msw con `onUnhandledFrame: "error"`, la opción equivalente en msw 3; errata corregida en el cierre del 2026-11-19).
+  3. `generateWithRetry` lanza `ProviderCapabilityError` antes de cualquier `budget.reserve` y de la red: test con `FakeProvider` sin `tools`, con 0 reservas y 0 llamadas en `calls`.
+  4. Solo se reintenta un `AgentLabError` con `retryable: true`. Un error no reintentable, un error que no es `AgentLabError` o `signal.reason` se propagan sin reintento, tras exactamente una llamada y siendo el mismo objeto (`toBe`).
+  5. Backoff exponencial con jitter: la espera del reintento `n` (`n = 0` en el primer reintento; precisión del cierre del 2026-11-19) es `min(baseDelayMs·2^n, maxDelayMs)·(1 − random·jitterRatio)`. Tests con `random` inyectado (0 y 0.999…) y `sleep` inyectado que registra las esperas exactas. `DEFAULT_RETRY_POLICY` = `{ maxRetries: 2, baseDelayMs: 500, maxDelayMs: 8000, jitterRatio: 0.25, maxRetryAfterMs: 60000 }`, congelado.
+  6. `retryAfterMs ≤ maxRetryAfterMs` → la espera es exactamente `retryAfterMs`, sin jitter. `retryAfterMs > maxRetryAfterMs` → no se reintenta (OD-085 (b)): se relanza el error original (`toBe`) con su `retryAfterMs` intacto, sin esperar y sin reservar otra llamada. Nunca se espera más de `maxRetryAfterMs` (TD-161): test con `retryAfterMs: 999_999_999_000` ⇒ 1 reserva, 1 llamada a `generate`, 0 esperas y el error original.
+  7. Máximo configurable por llamada (`policy.maxRetries`): como mucho `maxRetries + 1` llamadas a `generate`. Con `maxRetries: 0`, una llamada y el error original. Una `policy` inválida da `ProviderResponseError` (`retryable: false`) sin reservar ni llamar.
+  8. Descuento del presupuesto (OD-087 (a)): `budget` es obligatorio y `generateWithRetry` reserva todas las llamadas a modelo. Cada intento, el primero incluido, llama una vez a `budget.reserve("model")` antes de su `generate`; la reserva de un reintento ocurre antes de su espera. Un `BudgetExceededError` de `reserve` se propaga tal cual, sin más llamadas ni esperas. Test: N reintentos ⇒ N+1 reservas; presupuesto agotado tras 1 ⇒ 1 llamada y `BudgetExceededError`.
+  9. `AbortSignal`: abortado antes de empezar ⇒ `signal.reason`, 0 reservas y 0 llamadas. Abortado durante la espera ⇒ rechaza con `signal.reason` sin esperar al timer, sin más intentos, timer limpiado y listener retirado (fake timers: `vi.getTimerCount() === 0` tras el rechazo). Abortado durante `generate` ⇒ `signal.reason` sin reintento.
+  10. TD-165 (OD-086 (a)): la misma regla de lista blanca en los dos adaptadores, compartida en `src/network-failure.ts`. Un código de la lista blanca en la cadena `cause` da «connection failed» `retryable: true`. Un fallo TLS, `ENOTFOUND`, sin código o con un código desconocido da «connection failed» `retryable: false` (incluido `HttpResponse.error()` de msw). Un corte a mitad del cuerpo (`"terminated"` con `UND_ERR_SOCKET`) da `retryable: true` en los dos. Mensaje de plantilla fija y sin `cause` (los tests de no-fuga siguen en verde).
+  11. TD-167: comentario de `gemini/errors.ts` en líneas ≤ 100 caracteres; título del test de `no-leak.test.ts:164` renombrado.
+  12. `index.test.ts` fija la lista nueva de exports; ninguna ruta interna; `./testing` sin cambios.
+  13. Tests sin red real y sin timers reales (`sleep` inyectado o fake timers). Cobertura del paquete ≥ 90 % (OD-066). `typecheck`, `lint`, `format:check` y `test` en verde en contenedor. `package.json` y `pnpm-lock.yaml` sin cambios.
 
 ### TASK-020 · `GET /api/providers` y selección por agente desde `provider_configs`
-- **Estado**: BLOCKED · **Owner**: web-dev · **Depende de**: TASK-019 · **Scope**: `apps/web/src/app/api/providers/**`, `apps/web/src/app/(app)/projects/**`
+- **Estado**: READY · **Owner**: web-dev · **Depende de**: TASK-019 · **Scope**: `apps/web/src/app/api/providers/**`, `apps/web/src/app/(app)/projects/**`
 - **DoD**: lista proveedores con capacidades y modelos; test que verifica que ninguna respuesta contiene el valor de ninguna variable `*_API_KEY`; salida del worker restringida (sin RFC1918 ni metadatos cloud) junto con la allowlist de host (TD-018); salida de `web` restringida igual (TD-018 ampliada a `web`: sale por la red `egress`, necesaria para publicar el puerto).
 
 ### TASK-021 · Perfil `local`: modelo Ollama por defecto (OD-005) y `docs/PROVIDERS.md`
@@ -1042,3 +1062,10 @@ Solo el Orchestrator (sesión) y `docs-keeper` editan este fichero.
 | 2026-11-17 | TASK-018 ciclo 1 (providers-dev): MAJOR (solo `TypeError "fetch failed"` con `cause` es conexión `retryable`; partes no objeto → `ProviderResponseError`), MINOR, 2 NIT y OD-084 (b) corregidos; 223/223, cobertura 100/99.25; mutaciones muertas. TASK-018 → REVIEW. |
 | 2026-11-17 | TASK-018 tras el ciclo 1: **TEST PASS** (223/223, cobertura 100/99.25, `--network none`). **REVIEW APPROVED** (3 NIT). **SECURITY APPROVED** en 2 pasadas (la 1.ª se paró por un falso positivo de bash-guard; decisión humana: seguir sin la sonda de carga): 0 GHSA en las 36 transitivas, mínima 17 días; LOW redirección con `x-goog-api-key` (TD-141/TASK-020) y `retryAfterMs` sin tope (TASK-019); MEDIUM peers opcionales de openai/langsmith en las imágenes (migrate con `google-auth-library` y `ws` cargables) y comprobación pendiente de imports de migrate. Pendiente: `make test` y `make validate` del humano. |
 | 2026-11-17 | TASK-018 → DONE. `make test` y `make validate` en verde (humano, 2026-11-17). Informe en `docs/reports/TASK-018.md`. Veredictos: TEST PASS ×2 (223/223); REVIEW CHANGES_REQUESTED (ciclo 0) → APPROVED (ciclo 1); SECURITY APPROVED ×2. Deuda: TD-159 a TD-169 registradas; TD-157 y TD-169 PAID; TD-141 ampliada (Gemini). Desbloqueada: TASK-019 (BLOCKED → READY). |
+| 2026-11-17 | TASK-018 commit 403d8dd |
+| 2026-11-18 | TASK-019: plan del architect (`docs/reports/TASK-019-plan.md`) aprobado por el humano («Aprobar todo»). OD-085 resuelta (b) (si `retryAfterMs` supera el tope, no se reintenta), OD-086 (a) (lista blanca de códigos de red, común a los dos adaptadores) y OD-087 (a) (`generateWithRetry` reserva todas las llamadas a modelo; el orquestador no). DoD refinado en 13 viñetas; security REQUIRED; sin dependencias nuevas; paga TD-161, TD-165 y TD-167 (TD-145 queda solo para TASK-022). Pendiente para el cierre: frase de OD-087 en ARCHITECTURE §3.3 (architect). |
+| 2026-11-18 | TASK-019 → IN_PROGRESS. Scope: `packages/providers/**`; `deps_allowed` vacío. → providers-dev. |
+| 2026-11-18 | TASK-019 IMPLEMENTATION (providers-dev): `ProviderRegistry`, `createProvider`, `generateWithRetry` y `network-failure.ts` (OD-086 (a) en los dos adaptadores); TD-167 resuelta. 323/323 tests, cobertura 100/99.36; sin cambios en manifiestos ni lockfile. Incidencia de proceso: dos `python3` en el host sin `-I -B`, sin efecto en el repo. Siguiente: `/verify-task`. |
+| 2026-11-18 | TASK-019 → REVIEW (`/verify-task`: tester → reviewer → security). |
+| 2026-11-18 | TASK-019: **TEST PASS** (323/323, 13/13 viñetas, unas 45 mutaciones; M11 y M13 sobrevivían y el tester las mata con `retry-extra.test.ts`, 2 tests nuevos). **REVIEW APPROVED** (4 MINOR: desbordamiento de `setTimeout` en `resolvePolicy`, `createProvider` sin `default`, asimetría sin `cause`, test de abort tras `sleep`; 4 NIT, incluida la redacción del DoD 2 y 5). **SECURITY APPROVED** (2 LOW: techo de la política y tope de `maxRetries`, primer eslabón con `code`; sin sondas propias por un bloqueo de bash-guard en la copia al scratchpad, citado y sin rodeo). Sin ciclos de corrección. Pendiente: `make test` y `make validate` del humano. |
+| 2026-11-19 | TASK-019 → DONE. Cierre documental (docs-keeper). Veredictos: TEST PASS (323/323 más 2 tests de `retry-extra.test.ts`, 13/13 viñetas); REVIEW APPROVED (ciclo 0); SECURITY APPROVED (ciclo 0). Sin ciclos de corrección. `make test` y `make validate` en verde (humano, 2026-11-19). Informe en `docs/reports/TASK-019.md`. Deuda: TD-170 a TD-177 registradas; TD-143 ampliada; TD-161, TD-165, TD-167 y TD-175 PAID; TD-145 solo para TASK-022. Desbloqueada: TASK-020 (BLOCKED → READY). TASK-021 sigue BLOCKED: depende de OD-005, que sigue abierta en SPEC §13. |

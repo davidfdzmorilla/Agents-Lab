@@ -10,6 +10,7 @@ import {
   ProviderResponseError,
   ProviderTimeoutError,
 } from "@agentlab/core";
+import { isTransientNetworkFailure } from "../network-failure.js";
 
 const DECIMAL = /^\d+(\.\d+)?$/;
 
@@ -58,7 +59,13 @@ export function toProviderError(
   }
   if (err instanceof APIConnectionError) {
     return new ProviderResponseError(`${who} connection failed`, {
-      retryable: true,
+      retryable: isTransientNetworkFailure(err.cause),
+    });
+  }
+  // A body cut mid-stream leaves `response.text()` as a bare TypeError("terminated").
+  if (err instanceof TypeError && err.message === "terminated") {
+    return new ProviderResponseError(`${who} connection failed`, {
+      retryable: isTransientNetworkFailure(err),
     });
   }
   if (err instanceof APIError) {

@@ -302,11 +302,15 @@ describe("errors", () => {
     expect(err).toHaveProperty("retryable", true);
   });
 
-  it("maps a connection failure to a retryable response error", async () => {
+  it("maps a connection failure without a code to a non-retryable response error", async () => {
     server.use(route("post", GENERATE_PATH, () => HttpResponse.error()));
     const err = await failed(buildProvider().generate(request(), live));
     expect(err).toBeInstanceOf(ProviderResponseError);
-    expect(err).toHaveProperty("retryable", true);
+    expect(err).toHaveProperty(
+      "message",
+      'Provider "gemini" connection failed',
+    );
+    expect(err).toHaveProperty("retryable", false);
     expect(received).toHaveLength(1);
   });
 

@@ -5,10 +5,14 @@ import * as providers from "./index.js";
 import * as testing from "./testing/index.js";
 
 describe("public API", () => {
-  it("exports only the adapter from the index and the fake only from ./testing", () => {
+  it("exports only the adapters, registry and retry API from the index and the fake only from ./testing", () => {
     expect(Object.keys(providers).sort()).toEqual([
+      "DEFAULT_RETRY_POLICY",
       "GeminiProvider",
       "OpenAICompatibleProvider",
+      "ProviderRegistry",
+      "createProvider",
+      "generateWithRetry",
     ]);
     expect(Object.keys(testing)).toEqual(["FakeProvider"]);
   });

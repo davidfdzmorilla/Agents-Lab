@@ -6,6 +6,7 @@ import {
   ProviderResponseError,
   ProviderTimeoutError,
 } from "@agentlab/core";
+import { isTransientNetworkFailure } from "../network-failure.js";
 
 const RETRY_DELAY = /^(\d+(?:\.\d+)?)s$/;
 const RETRY_INFO_TYPE = "type.googleapis.com/google.rpc.RetryInfo";
@@ -48,12 +49,14 @@ function hasInvalidKeyReason(body: string): boolean {
 }
 
 // The SDK rethrows what fetch throws. A network failure is the Fetch spec's
-// `TypeError("fetch failed", { cause })` (undici: an Error; msw's emulation: a Response). Other TypeErrors (e.g. the SDK choking on a
-// malformed 200 body) carry no cause and are not worth retrying. Nothing is copied.
-function isFetchNetworkFailure(err: unknown): boolean {
+// `TypeError("fetch failed", { cause })` (undici: an Error; msw's emulation: a Response);
+// a body cut mid-stream is `TypeError("terminated", { cause })`. Other TypeErrors (e.g. the
+// SDK choking on a malformed 200 body) are not network failures. Whether the failure is
+// worth retrying is decided by the shared whitelist. Nothing is copied.
+function isFetchNetworkFailure(err: unknown): err is TypeError {
   return (
     err instanceof TypeError &&
-    err.message === "fetch failed" &&
+    (err.message === "fetch failed" || err.message === "terminated") &&
     isRecord(err.cause)
   );
 }
@@ -97,7 +100,7 @@ export function toGeminiProviderError(
   }
   if (isFetchNetworkFailure(err)) {
     return new ProviderResponseError(`${who} connection failed`, {
-      retryable: true,
+      retryable: isTransientNetworkFailure(err),
     });
   }
   return new ProviderResponseError(`${who} failed with an unexpected error`);

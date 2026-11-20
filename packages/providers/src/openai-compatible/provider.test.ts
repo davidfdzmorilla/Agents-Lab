@@ -294,13 +294,14 @@ describe("generate", () => {
     expect(received).toHaveLength(1);
   });
 
-  it("maps a network failure to a retryable ProviderResponseError", async () => {
+  it("maps a network failure without a code to a non-retryable ProviderResponseError", async () => {
     server.use(route("post", "/chat/completions", () => HttpResponse.error()));
     const err = await build()
       .generate(request(), live)
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ProviderResponseError);
-    expect(err).toMatchObject({ retryable: true });
+    expect(err).toMatchObject({ retryable: false });
+    expect((err as Error).message).toMatch(/connection failed$/);
   });
 
   it("maps a response without choices to ProviderResponseError", async () => {
