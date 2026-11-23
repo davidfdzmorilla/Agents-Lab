@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import {
-  ProviderResponseError,
+  ProviderConfigInvalidError,
   ProviderTimeoutError,
   type GenerateRequest,
   type GenerateResponse,
@@ -27,14 +27,19 @@ export interface OpenAICompatibleProviderOptions {
   readonly secretResolver: SecretResolver;
 }
 
-function assertHttpUrl(id: string, baseUrl: string): void {
+// An empty baseURL would make the SDK fall back to api.openai.com and send it the key.
+// Credentials in the URL are refused (TD-141 L1) and so is plain http when a key is sent
+// (L3). The URL is not echoed: it may carry credentials.
+function assertHttpUrl(id: string, baseUrl: string, hasKey: boolean): void {
+  const url = URL.canParse(baseUrl) ? new URL(baseUrl) : undefined;
   const valid =
-    URL.canParse(baseUrl) && /^https?:$/.test(new URL(baseUrl).protocol);
-  // An empty baseURL would make the SDK fall back to api.openai.com and send it the key.
-  // The URL is not echoed: it may carry credentials.
+    url !== undefined &&
+    (url.protocol === "https:" || (url.protocol === "http:" && !hasKey)) &&
+    url.username === "" &&
+    url.password === "";
   if (!valid) {
-    throw new ProviderResponseError(
-      `Provider "${id}" has an invalid baseUrl (an http or https URL is required)`,
+    throw new ProviderConfigInvalidError(
+      `Provider "${id}" has an invalid baseUrl (an http or https URL without credentials is required, and https when an API key is used)`,
     );
   }
 }
@@ -45,7 +50,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   readonly #client: OpenAI;
 
   constructor(options: OpenAICompatibleProviderOptions) {
-    assertHttpUrl(options.id, options.baseUrl);
+    assertHttpUrl(options.id, options.baseUrl, options.apiKeyEnv !== null);
     const apiKey =
       options.apiKeyEnv === null
         ? NO_KEY_MARKER
@@ -54,20 +59,31 @@ export class OpenAICompatibleProvider implements ModelProvider {
     this.id = options.id;
     this.capabilities = Object.freeze({ ...options.capabilities });
     // Every option is explicit: the SDK reads the OPENAI_* variables for any option left undefined.
-    // Only OPENAI_CUSTOM_HEADERS cannot be avoided (OD-064, accepted as debt).
-    this.#client = new OpenAI({
-      apiKey,
-      baseURL: options.baseUrl,
-      organization: null,
-      project: null,
-      adminAPIKey: null,
-      webhookSecret: null,
-      maxRetries: 0,
-      logLevel: "off",
-      ...(options.apiKeyEnv === null
-        ? { defaultHeaders: { Authorization: null } }
-        : {}),
-    });
+    // OPENAI_CUSTOM_HEADERS cannot be avoided (OD-064), but explicit defaultHeaders win over
+    // it, so the environment cannot replace Authorization (TD-142). Other custom headers
+    // remain accepted. Redirects are never followed (TD-141 L2).
+    // The SDK builds headers in the constructor, and undici's TypeError for an invalid header
+    // value quotes it (the key). Nothing from the original error is kept.
+    try {
+      this.#client = new OpenAI({
+        apiKey,
+        baseURL: options.baseUrl,
+        organization: null,
+        project: null,
+        adminAPIKey: null,
+        webhookSecret: null,
+        maxRetries: 0,
+        logLevel: "off",
+        fetchOptions: { redirect: "error" },
+        defaultHeaders: {
+          Authorization: options.apiKeyEnv === null ? null : `Bearer ${apiKey}`,
+        },
+      });
+    } catch {
+      throw new ProviderConfigInvalidError(
+        `Provider "${options.id}" could not build its client (an API key or an OPENAI_CUSTOM_HEADERS value is not a valid HTTP header value)`,
+      );
+    }
   }
 
   async listModels(): Promise<ModelInfo[]> {

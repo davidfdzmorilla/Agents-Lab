@@ -3,6 +3,7 @@ import {
   BudgetExceededError,
   ProviderAuthError,
   ProviderCapabilityError,
+  ProviderConfigInvalidError,
   ProviderRateLimitError,
   ProviderResponseError,
   ProviderTimeoutError,
@@ -387,7 +388,8 @@ describe("generateWithRetry: maxRetries", () => {
         budget,
         policy,
       }).catch((e: unknown) => e);
-      expect(err).toBeInstanceOf(ProviderResponseError);
+      expect(err).toBeInstanceOf(ProviderConfigInvalidError);
+      expect(err).toHaveProperty("code", "PROVIDER_CONFIG_INVALID");
       expect(err).toHaveProperty("retryable", false);
       expect(reserve).not.toHaveBeenCalled();
       expect(provider.calls).toHaveLength(0);

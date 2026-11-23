@@ -1,5 +1,5 @@
 import {
-  ProviderResponseError,
+  ProviderConfigInvalidError,
   type ModelProvider,
   type ProviderCapabilities,
   type SecretResolver,
@@ -15,10 +15,10 @@ export class ProviderRegistry {
   constructor(providers: readonly ModelProvider[]) {
     for (const provider of providers) {
       if (provider.id === "") {
-        throw new ProviderResponseError("A provider id must not be empty");
+        throw new ProviderConfigInvalidError("A provider id must not be empty");
       }
       if (this.#byId.has(provider.id)) {
-        throw new ProviderResponseError(
+        throw new ProviderConfigInvalidError(
           `Provider "${provider.id}" is already registered`,
         );
       }
@@ -68,5 +68,12 @@ export function createProvider(
         apiKeyEnv: config.apiKeyEnv,
         secretResolver: deps.secretResolver,
       });
+    default:
+      // Compile-time exhaustiveness. At run time a `type` that is none of the above (a
+      // config cast past the types) is rejected; the value is not echoed.
+      config satisfies never;
+      throw new ProviderConfigInvalidError(
+        "The provider configuration has an unknown type",
+      );
   }
 }

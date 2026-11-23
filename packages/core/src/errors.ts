@@ -7,6 +7,7 @@ export type AgentLabErrorCode =
   | "PROVIDER_TIMEOUT"
   | "PROVIDER_CAPABILITY"
   | "PROVIDER_RESPONSE"
+  | "PROVIDER_CONFIG_INVALID"
   | "BUDGET_EXCEEDED"
   | "ENV_INVALID"
   | "API_KEY_ENV_INVALID"
@@ -69,6 +70,12 @@ export class ProviderResponseError extends AgentLabError {
     options: AgentLabErrorOptions & { readonly retryable?: boolean } = {},
   ) {
     super("PROVIDER_RESPONSE", message, options.retryable ?? false, options);
+  }
+}
+
+export class ProviderConfigInvalidError extends AgentLabError {
+  constructor(message: string, options?: AgentLabErrorOptions) {
+    super("PROVIDER_CONFIG_INVALID", message, false, options);
   }
 }
 

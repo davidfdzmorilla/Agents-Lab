@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as providers from "./index.js";
+import * as presets from "./presets.js";
 import * as testing from "./testing/index.js";
 
 describe("public API", () => {
@@ -17,7 +18,17 @@ describe("public API", () => {
     expect(Object.keys(testing)).toEqual(["FakeProvider"]);
   });
 
-  it("declares exactly the . and ./testing sub-exports, and the files exist", () => {
+  it("exports the closed provider types, presets and record mapper from ./presets", () => {
+    expect(Object.keys(presets).sort()).toEqual([
+      "GEMINI_CAPABILITIES",
+      "PROVIDER_PRESETS",
+      "PROVIDER_TYPES",
+      "isProviderType",
+      "providerConfigFromRecord",
+    ]);
+  });
+
+  it("declares exactly the ., ./presets and ./testing sub-exports, and the files exist", () => {
     const manifest: unknown = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
     );
@@ -27,6 +38,7 @@ describe("public API", () => {
         : undefined;
     const expected = {
       ".": "./src/index.ts",
+      "./presets": "./src/presets.ts",
       "./testing": "./src/testing/index.ts",
     };
     expect(exportsField).toEqual(expected);

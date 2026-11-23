@@ -9,7 +9,16 @@ const positiveInt = (fallback: number) =>
   z.coerce.number().int().positive().default(fallback);
 
 const postgresUrl = () => z.url({ protocol: /^postgres(ql)?$/ });
-const httpUrl = () => z.url({ protocol: /^https?$/ });
+function hasNoEmbeddedCredentials(value: string): boolean {
+  if (!URL.canParse(value)) return true;
+  const url = new URL(value);
+  return url.username === "" && url.password === "";
+}
+
+const httpUrl = () =>
+  z.url({ protocol: /^https?$/ }).refine(hasNoEmbeddedCredentials, {
+    message: "must not contain embedded credentials",
+  });
 
 export const EnvSchema = z.object({
   DATABASE_URL: postgresUrl(),

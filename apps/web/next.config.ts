@@ -7,7 +7,11 @@ const monorepoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: monorepoRoot,
-  transpilePackages: ["@agentlab/core", "@agentlab/persistence"],
+  transpilePackages: [
+    "@agentlab/core",
+    "@agentlab/persistence",
+    "@agentlab/providers",
+  ],
   poweredByHeader: false,
   // No image optimizer until next/image is used (security LOW, TASK-007); keeps sharp unused at runtime.
   images: { unoptimized: true },

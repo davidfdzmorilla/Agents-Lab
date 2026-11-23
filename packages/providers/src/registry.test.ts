@@ -10,7 +10,7 @@ import {
 import { setupServer } from "msw/node";
 import {
   ProviderAuthError,
-  ProviderResponseError,
+  ProviderConfigInvalidError,
   type ProviderCapabilities,
 } from "@agentlab/core";
 import { FakeProvider } from "./testing/fake-provider.js";
@@ -75,10 +75,10 @@ describe("ProviderRegistry", () => {
     ).toEqual(["constructor", "get", "list"]);
   });
 
-  it("rejects a repeated id with a non-retryable ProviderResponseError", () => {
+  it("rejects a repeated id with a non-retryable ProviderConfigInvalidError", () => {
     const build = () =>
       new ProviderRegistry([fakeWithId("a"), fakeWithId("b"), fakeWithId("a")]);
-    expect(build).toThrow(ProviderResponseError);
+    expect(build).toThrow(ProviderConfigInvalidError);
     expect(build).toThrow('Provider "a" is already registered');
     try {
       build();
@@ -87,9 +87,9 @@ describe("ProviderRegistry", () => {
     }
   });
 
-  it("rejects an empty id with a non-retryable ProviderResponseError", () => {
+  it("rejects an empty id with a non-retryable ProviderConfigInvalidError", () => {
     const build = () => new ProviderRegistry([fakeWithId("")]);
-    expect(build).toThrow(ProviderResponseError);
+    expect(build).toThrow(ProviderConfigInvalidError);
     expect(build).toThrow("A provider id must not be empty");
     try {
       build();
@@ -121,7 +121,7 @@ describe("createProvider", () => {
       {
         type: "openai-compatible",
         id: "openrouter",
-        baseUrl: "http://fake-provider.test/v1",
+        baseUrl: "https://fake-provider.test/v1",
         apiKeyEnv: "OPENROUTER_API_KEY",
         capabilities: CAPS,
       },
@@ -167,7 +167,7 @@ describe("createProvider", () => {
         {
           type: "openai-compatible",
           id: "openrouter",
-          baseUrl: "http://fake-provider.test/v1",
+          baseUrl: "https://fake-provider.test/v1",
           apiKeyEnv: "OPENROUTER_API_KEY",
           capabilities: CAPS,
         },
@@ -188,7 +188,24 @@ describe("createProvider", () => {
         },
         { secretResolver },
       ),
-    ).toThrow(ProviderResponseError);
+    ).toThrow(ProviderConfigInvalidError);
+  });
+
+  it("rejects a type that is none of the known ones at run time, without echoing it", () => {
+    const secretType = "secret-type-canary";
+    const bad = { type: secretType, id: "x", apiKeyEnv: null };
+    let caught: unknown;
+    try {
+      createProvider(bad as never, { secretResolver });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ProviderConfigInvalidError);
+    expect(caught).toMatchObject({
+      code: "PROVIDER_CONFIG_INVALID",
+      retryable: false,
+    });
+    expect((caught as Error).message).not.toContain(secretType);
   });
 
   it("sends no HTTP request when constructing either adapter", async () => {
@@ -201,7 +218,7 @@ describe("createProvider", () => {
       {
         type: "openai-compatible",
         id: "openrouter",
-        baseUrl: "http://fake-provider.test/v1",
+        baseUrl: "https://fake-provider.test/v1",
         apiKeyEnv: "OPENROUTER_API_KEY",
         capabilities: CAPS,
       },

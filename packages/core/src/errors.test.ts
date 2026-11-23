@@ -7,6 +7,7 @@ import {
   InvalidTransitionError,
   ProviderAuthError,
   ProviderCapabilityError,
+  ProviderConfigInvalidError,
   ProviderRateLimitError,
   ProviderResponseError,
   ProviderTimeoutError,
@@ -44,6 +45,12 @@ describe("AgentLabError subclasses", () => {
       "ProviderResponseError",
       new ProviderResponseError("m", { cause }),
       "PROVIDER_RESPONSE",
+      false,
+    ],
+    [
+      "ProviderConfigInvalidError",
+      new ProviderConfigInvalidError("m", { cause }),
+      "PROVIDER_CONFIG_INVALID",
       false,
     ],
     [

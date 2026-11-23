@@ -132,6 +132,30 @@ describe("loadEnv", () => {
     }
   });
 
+  it("rejects embedded credentials in http URLs without echoing them", () => {
+    const canary = "pw-canary-4242";
+    for (const name of ["OLLAMA_BASE_URL", "OTEL_EXPORTER_OTLP_ENDPOINT"]) {
+      for (const bad of [
+        `http://user:${canary}@localhost:1`,
+        `https://user@h.example/x`,
+        `https://:${canary}@h.example/x`,
+      ]) {
+        let message = "";
+        let cause: unknown;
+        try {
+          loadEnv({ DATABASE_URL: DB, [name]: bad });
+        } catch (error) {
+          message = (error as Error).message;
+          cause = (error as EnvValidationError).cause;
+        }
+        expect(message).toContain(name);
+        expect(message).toContain("embedded credentials");
+        expect(message).not.toContain(canary);
+        expect(JSON.stringify(cause)).not.toContain(canary);
+      }
+    }
+  });
+
   it("validates DATABASE_URL_TEST like DATABASE_URL", () => {
     const test = "postgresql://u@localhost:5432/agentlab_test";
     expect(

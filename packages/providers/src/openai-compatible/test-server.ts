@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import type { GenerateRequest, ProviderCapabilities } from "@agentlab/core";
 
-export const BASE = "http://fake-provider.test/v1";
+export const BASE = "https://fake-provider.test/v1";
 export const CANARY = "sk-canary-0123456789abcdef";
 
 export const CAPS: ProviderCapabilities = {

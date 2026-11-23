@@ -22,6 +22,7 @@ describe("public API", () => {
         "ProviderAuthError",
         "ProviderCapabilitiesSchema",
         "ProviderCapabilityError",
+        "ProviderConfigInvalidError",
         "ProviderRateLimitError",
         "ProviderResponseError",
         "ProviderTimeoutError",

@@ -8,10 +8,11 @@ import {
   it,
   vi,
 } from "vitest";
-import { HttpResponse } from "msw";
+import { HttpResponse, http } from "msw";
 import {
   ProviderAuthError,
   ProviderCapabilityError,
+  ProviderConfigInvalidError,
   ProviderRateLimitError,
   ProviderResponseError,
   ProviderTimeoutError,
@@ -143,14 +144,65 @@ describe("construction and key handling", () => {
       } catch (err) {
         caught = err;
       }
-      expect(caught).toBeInstanceOf(ProviderResponseError);
+      expect(caught).toBeInstanceOf(ProviderConfigInvalidError);
+      expect(caught).toMatchObject({
+        code: "PROVIDER_CONFIG_INVALID",
+        retryable: false,
+      });
       if (baseUrl !== "") {
-        expect((caught as ProviderResponseError).message).not.toContain(
-          baseUrl,
-        );
+        expect((caught as Error).message).not.toContain(baseUrl);
       }
     },
   );
+
+  it.each([
+    "https://user:pw-canary-9f3a@fake-provider.test/v1",
+    "https://user@fake-provider.test/v1",
+    "http://user:pw-canary-9f3a@fake-provider.test/v1",
+  ])(
+    "rejects embedded credentials in baseUrl %s without echoing them",
+    (baseUrl) => {
+      for (const apiKeyEnv of ["OPENROUTER_API_KEY", null]) {
+        let caught: unknown;
+        try {
+          build({ baseUrl, apiKeyEnv });
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(ProviderConfigInvalidError);
+        const message = (caught as Error).message;
+        expect(message).not.toContain("pw-canary-9f3a");
+        expect(message).not.toContain("user");
+      }
+    },
+  );
+
+  it("rejects plain http when an API key would be sent, without echoing the URL", () => {
+    let caught: unknown;
+    try {
+      build({ baseUrl: "http://fake-provider.test/v1" });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ProviderConfigInvalidError);
+    expect((caught as Error).message).not.toContain("fake-provider.test");
+  });
+
+  it("allows plain http without an API key (Ollama)", async () => {
+    server.use(
+      http.post("http://fake-provider.test/v1/chat/completions", () =>
+        chatOk(),
+      ),
+    );
+    const p = build({
+      id: "ollama",
+      baseUrl: "http://fake-provider.test/v1",
+      apiKeyEnv: null,
+    });
+    await expect(p.generate(request(), live)).resolves.toMatchObject({
+      content: "hello",
+    });
+  });
 
   it("exposes only id and a frozen copy of the capabilities", () => {
     const caps = { ...CAPS };

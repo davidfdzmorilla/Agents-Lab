@@ -10,6 +10,8 @@ import {
 } from "@agentlab/core";
 import { resolveApiKey } from "../api-key.js";
 import { assertCapabilities } from "../capabilities.js";
+import { noRedirectFetch } from "../no-redirect-fetch.js";
+import { GEMINI_CAPABILITIES } from "../presets.js";
 import { toGeminiProviderError } from "./errors.js";
 import {
   assertRepresentable,
@@ -23,17 +25,6 @@ const MODEL_PREFIX = "models/";
 // explicit value the SDK would read GOOGLE_GEMINI_BASE_URL from the environment.
 const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/";
 
-// Fixed (OD-078): what the adapter really does today. Context size depends on the model,
-// so it is unknown at provider level (TD-145). Streaming is not part of ModelProvider.
-const CAPABILITIES: ProviderCapabilities = Object.freeze({
-  tools: true,
-  structuredOutput: true,
-  streaming: false,
-  maxContextTokens: null,
-  reportsUsage: true,
-  reportsCost: false,
-});
-
 export interface GeminiProviderOptions {
   readonly id: string;
   readonly apiKeyEnv: string;
@@ -42,7 +33,7 @@ export interface GeminiProviderOptions {
 
 export class GeminiProvider implements ModelProvider {
   readonly id: string;
-  readonly capabilities: ProviderCapabilities = CAPABILITIES;
+  readonly capabilities: ProviderCapabilities = GEMINI_CAPABILITIES;
   readonly #client: GoogleGenAI;
 
   constructor(options: GeminiProviderOptions) {
@@ -61,7 +52,9 @@ export class GeminiProvider implements ModelProvider {
       apiKey,
       vertexai: false,
       apiVersion: "v1beta",
-      httpOptions: { baseUrl: GEMINI_BASE_URL },
+      // An explicit fetch drops the SDK's no-timeout dispatcher, so undici's default timeouts
+      // apply (plan R3); the whitelisted timeout codes are retried as before.
+      httpOptions: { baseUrl: GEMINI_BASE_URL, fetch: noRedirectFetch },
     });
   }
 

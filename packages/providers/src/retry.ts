@@ -1,7 +1,7 @@
 import {
   AgentLabError,
+  ProviderConfigInvalidError,
   ProviderRateLimitError,
-  ProviderResponseError,
   type GenerateRequest,
   type GenerateResponse,
   type ModelProvider,
@@ -58,7 +58,7 @@ function resolvePolicy(partial: Partial<RetryPolicy> | undefined): RetryPolicy {
     policy.jitterRatio <= 1 &&
     policy.baseDelayMs <= policy.maxDelayMs;
   if (!valid) {
-    throw new ProviderResponseError("The retry policy is invalid");
+    throw new ProviderConfigInvalidError("The retry policy is invalid");
   }
   return policy;
 }

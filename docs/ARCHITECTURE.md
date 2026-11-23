@@ -13,7 +13,7 @@ Tres procesos en Docker Compose + dos opcionales + dos de un solo uso (`migrate`
 
 | Servicio | Imagen / base | Puerto expuesto | Responsabilidad |
 |---|---|---|---|
-| `web` | Node 22 (stage `runtime` de `docker/web.Dockerfile`, Next.js `output: "standalone"`, ADR-012) | `127.0.0.1:3000` (host) | UI + API HTTP/SSE. Crea runs, lee estado, emite eventos. **Nunca** ejecuta agentes. CMD `["node", "apps/web/server.js"]` bajo `init: true`, uid 1000, sin gestores de paquetes. Sin perfil en compose. Redes `backend` y `egress`: `egress` solo sirve para publicar el puerto (un contenedor conectado únicamente a redes `internal: true` no lo publica); `web` no hace llamadas salientes y su salida a internet sin restricciones es la de TD-018 (TASK-020). `tmpfs` en `/app/apps/web/.next/cache` (uid 1000, `0700`, 64m; ADR-012). Bajo `SIGTERM` sale con 143 por diseño de Next (ADR-012): es el único servicio que no termina con 0 y no es un fallo. |
+| `web` | Node 22 (stage `runtime` de `docker/web.Dockerfile`, Next.js `output: "standalone"`, ADR-012) | `127.0.0.1:3000` (host) | UI + API HTTP/SSE. Crea runs, lee estado, emite eventos. **Nunca** ejecuta agentes. CMD `["node", "apps/web/server.js"]` bajo `init: true`, uid 1000, sin gestores de paquetes. Sin perfil en compose. Redes `backend` y `egress`: `egress` solo sirve para publicar el puerto (un contenedor conectado únicamente a redes `internal: true` no lo publica); `web` no hace llamadas salientes y su salida a internet sin restricciones es la de TD-018, que se paga en TASK-050 (ADR-014, Proposed; OD-088 (b)): hasta entonces sigue sin restringir. `tmpfs` en `/app/apps/web/.next/cache` (uid 1000, `0700`, 64m; ADR-012). Bajo `SIGTERM` sale con 143 por diseño de Next (ADR-012): es el único servicio que no termina con 0 y no es un fallo. |
 | `worker` | Node 22 (stage `runtime` de `docker/worker.Dockerfile`, `pnpm deploy`, ADR-011) | ninguno | Reclama runs `queued`, ejecuta el grafo, persiste eventos y checkpoints. CMD `["node", "--import", "tsx", "src/index.ts"]` bajo `init: true` (OD-032). Redes `backend` y `egress`. |
 | `db` | PostgreSQL 16 | ninguno (solo red interna; `5432` en host opcional vía `compose.override`) | Fuente de verdad. |
 | `ollama` (opcional, perfil `local`) | ollama/ollama | ninguno | Inferencia local. |
@@ -57,7 +57,12 @@ core ← persistence ← policies ← providers ← orchestrator ← agents ← 
 | `tools` | `ToolRegistry`, herramientas (`web.search`, `source.read`, `artifact.*`), allowlist HTTP. | Decisiones de autorización (las toma `policies`). |
 | `evaluations` | Datasets de tareas, evaluadores, comparación de runs. | — |
 
-Cada paquete exporta desde `src/index.ts` y, opcionalmente, sub-exports declarados en `package.json` `exports`; nunca rutas internas (decisión humana del 2026-10-21, TASK-007). Importar rutas internas de otro paquete está prohibido (lint rule `no-restricted-imports`). Sub-exports actuales: `@agentlab/persistence/testing`, `@agentlab/persistence/migrate` (`runMigrations`, fuera del índice: OD-040 a) y `@agentlab/providers/testing` (`FakeProvider`, TASK-010). Cada sub-export está cubierto por el test de exports de su paquete.
+Cada paquete exporta desde `src/index.ts` y, opcionalmente, sub-exports declarados en `package.json` `exports`; nunca rutas internas (decisión humana del 2026-10-21, TASK-007). Importar rutas internas de otro paquete está prohibido (lint rule `no-restricted-imports`). Sub-exports actuales: `@agentlab/persistence/testing`, `@agentlab/persistence/migrate` (`runMigrations`, fuera del índice: OD-040 a), `@agentlab/providers/testing` (`FakeProvider`, TASK-010) y `@agentlab/providers/presets` (TASK-020). Cada sub-export está cubierto por el test de exports de su paquete.
+
+`@agentlab/providers/presets` (`packages/providers/src/presets.ts`, OD-090 (a)):
+- Exporta `PROVIDER_TYPES`, `PROVIDER_PRESETS`, `isProviderType`, `providerConfigFromRecord` y `GEMINI_CAPABILITIES`, más sus tipos (`ProviderType`, `ProviderPreset`, `ProviderConfigRecord`). `GEMINI_CAPABILITIES` es API pública: es la fuente única de las capacidades de Gemini, y el adaptador las importa de ahí.
+- Solo importa valores de `@agentlab/core` y tipos de `registry.ts`. No importa ningún SDK (`openai`, `@google/genai`).
+- `web` importa de `providers` **solo** este sub-export, nunca el índice, que arrastra los dos SDK. Dirección: `web → providers/presets → core`. Lo comprueba `apps/web/src/server/static.test.ts`.
 
 ## 3. Contratos centrales
 
@@ -65,7 +70,7 @@ Cada paquete exporta desde `src/index.ts` y, opcionalmente, sub-exports declarad
 
 ```ts
 interface ModelProvider {
-  readonly id: string;              // "openrouter" | "ollama" | "gemini" | …
+  readonly id: string;              // uuid de la fila de provider_configs (OD-057); el tipo va en los presets (OD-090 (a))
   readonly capabilities: ProviderCapabilities;
   listModels(): Promise<ModelInfo[]>;
   generate(req: GenerateRequest, signal: AbortSignal): Promise<GenerateResponse>;
@@ -201,7 +206,7 @@ Excepción (OD-024): la tabla de control de migraciones de Drizzle vive en el es
 | Tabla | Columnas clave | Notas |
 |---|---|---|
 | `projects` | `name`, `budget_profile jsonb` | |
-| `provider_configs` | `project_id`, `provider_type`, `base_url`, `default_model`, `api_key_env text` | `api_key_env` es el **nombre** de la variable; nunca el valor |
+| `provider_configs` | `project_id`, `provider_type`, `base_url`, `default_model`, `api_key_env text` | `api_key_env` es el **nombre** de la variable; nunca el valor. `provider_type` de lista cerrada y `base_url` ignorada (ver abajo) |
 | `agent_definitions` | `project_id`, `name`, `role`, `system_prompt`, `prompt_version`, `provider_config_id`, `model_id`, `tool_allowlist text[]`, `max_calls`, `max_tokens`, `timeout_ms`, `output_schema jsonb`, `enabled` | |
 | `team_definitions` | `project_id`, `name`, `graph_builder`, `agent_ids uuid[]`, `coordination jsonb` | |
 | `runs` | `project_id`, `team_id`, `request jsonb`, `status`, `budget jsonb`, `budget_used jsonb`, `result jsonb`, `error jsonb`, `cancel_requested bool`, `worker_id`, `worker_heartbeat_at`, `started_at`, `finished_at` | índice `(status, created_at)` |
@@ -219,15 +224,37 @@ La tabla anterior es el modelo objetivo. La migración `0000_init` (TASK-005, OD
 - **Índices:** solo los que consulta M1: `runs (status, created_at)`, `unique (run_id, seq)` (sirve también a `listSince`) y los de `project_id` en `provider_configs` y `agent_definitions` (listados por proyecto).
 - **Fuera de `0000_init`:** `team_definitions.coordination` (M4, TASK-034; `TeamDefinition` de `core` no la tiene) y las tablas `tool_invocations` (TASK-030), `run_checkpoints` (TASK-023) y `evaluations` (TASK-036), cada una con su migración (OD-028): "lo que M1 no use, fuera" manda sobre el número de tablas.
 - **`provider_configs.api_key_env`:** `text NULL` (Ollama no tiene clave), **sin `CHECK`** (OD-023): un valor rechazado no debe llegar a la base ni a sus logs. Lo valida el repositorio antes del `INSERT` con la regla de OD-017 que exporta `core` y longitud ≤ 40; si no la cumple, lanza `InvalidApiKeyEnvError` de `core` (`code: "API_KEY_ENV_INVALID"`, OD-027), con mensaje fijo que no incluye el valor. Ningún otro código escribe en `provider_configs`.
+- **`provider_configs.provider_type` y `base_url` (TASK-020, OD-090 (a)):**
+  - `provider_type` ∈ `PROVIDER_TYPES` (`openrouter`, `ollama`, `gemini`) de `@agentlab/providers/presets`. La lista se aplica al leer, no al escribir: la columna sigue siendo `text` sin `CHECK`, y la validación al escribir es deuda con pago en TASK-034 (plan de TASK-020 §7).
+  - Cada tipo tiene un preset con URL constante: `openrouter` → `https://openrouter.ai/api/v1`; `ollama` → `http://ollama:11434/v1/` (SPEC §2.1); `gemini` → la de OD-079, en el adaptador. También fija la regla de clave (`api_key_env` obligatorio en `openrouter` y `gemini`, `NULL` en `ollama`) y las capacidades.
+  - `base_url` se ignora en los tres tipos: ninguna URL de la BD o de la UI llega a un adaptador.
+  - `providerConfigFromRecord` traduce la fila a `ProviderConfig` con `id` = `provider_configs.id`, que es el `providerId` de `AgentDefinition` (OD-057). La usarán `web` y el `worker` (TASK-015). Un tipo desconocido o una regla de clave incumplida lanza `ProviderConfigInvalidError`.
 
 Prompts persistidos en `agent_invocations` (M3, columna `prompt_snapshot jsonb`): se pasan por `redactSecrets()` antes de guardar. El test `persistence/redaction.test.ts` falla si una cadena que coincida con cualquier `api_key_env` del entorno llega a la base de datos.
 
 ## 7. apps/web
 
-- Next.js App Router. Rutas: `/` (proyectos), `/projects/:id` (equipos, agentes), `/runs/:id` (timeline de eventos, pasos, presupuesto, resultado), `/runs/:id/compare/:otherId` (M3).
+- Next.js App Router. Rutas: `/` (portada, enlaza a `/projects`), `/projects` (proyectos), `/projects/:id` (equipos, agentes), `/runs/:id` (timeline de eventos, pasos, presupuesto, resultado), `/runs/:id/compare/:otherId` (M3). `/projects` y `/projects/:id` existen desde TASK-020 (OD-046) en `apps/web/src/app/(app)/projects/**`; hoy `/projects/:id` muestra las configuraciones de proveedor y los agentes, todavía no los equipos.
 - App Router en `apps/web/src/app` (OD-041 a; `rootDir: "src"` se mantiene). Route Handlers en `apps/web/src/app/api/**/route.ts`; `route.ts` solo compone y la lógica vive en `apps/web/src/server/**`.
 - Las rutas con lógica (desde TASK-014) validan entrada con Zod y devuelven errores `{ code, message }` con estado HTTP coherente (400 validación, 404, 409 transición inválida, 500). En M0 no hay ninguna: con un entorno inválido, `/api/health` responde el 500 por defecto de Next, que registra el error sin valores (OD-044 a: sin logger en `web` en M0).
 - `GET /api/health` (TASK-007): `export const dynamic = "force-dynamic"`; 200 `{ ok: true, db: "up", version }` o 503 `{ ok: false, db: "down" }`, exactamente esas claves, ambas con `cache-control: no-store`. `version` es el campo `version` de `apps/web/package.json`, embebido en el build (OD-043 a). Plazo único de 2 s (`HEALTH_TIMEOUT_MS = 2000`, constante, no variable de entorno) que cubre conexión y `select 1` mediante `pingDatabase` de `persistence`, sobre un pool de una conexión por petición (`max: 1`, `connectionTimeoutMillis` = plazo); el pool compartido del proceso lo decide TASK-014. Sin autenticación (OD-003, TD-005).
+- `GET /api/providers` (TASK-020, OD-092 (a)). El contrato completo está en `docs/reports/TASK-020-plan.md` §4; la lógica, en `apps/web/src/server/providers.ts`.
+  - Listado global, sin parámetros, con `projectId` en cada elemento. `dynamic = "force-dynamic"` y `cache-control: no-store`.
+  - 200 `{ providers: [...] }`. Por cada fila de `provider_configs` devuelve `id`, `projectId`, `type`, `valid`, `error`, `defaultModel`, `capabilities` y `models`. Una fila inválida sale con `valid: false`, `type: null`, `capabilities: null` y `error: { code: "PROVIDER_CONFIG_INVALID" }`.
+  - `capabilities` son las del preset (§6). `models` son los **declarados** (OD-089 (b)): primero `default_model`, luego los `model_id` de los agentes de esa configuración, sin duplicados.
+  - Nunca salen `base_url`, `api_key_env` ni un `provider_type` fuera de la lista.
+  - Cualquier fallo, incluida la BD, da 500 `{ code: "INTERNAL", message: "Internal server error" }`, con mensaje fijo. Un entorno inválido da el 500 por defecto de Next (OD-044).
+- Pantallas `/projects` y `/projects/:id` (TASK-020, OD-091 (c)). La lógica está en `apps/web/src/server/projects.ts`.
+  - Son de solo lectura: Server Components con `dynamic = "force-dynamic"`, sin Client Components, sin Server Actions y sin escrituras.
+  - Un id que no es uuid, o que no existe, da `notFound()`.
+  - Marcan los agentes cuya configuración es inválida o pertenece a otro proyecto (la FK no lo impide).
+  - Editar el proveedor o el modelo de un agente es de TASK-034.
+- `web` no tiene claves ni hace llamadas a proveedores (OD-089 (b)).
+  - No construye adaptadores, no resuelve secretos y no hace red de salida.
+  - De `providers` solo importa `@agentlab/providers/presets` (§2), que está en `transpilePackages`. Ni `.next/standalone` ni `.next/server` contienen `openai` ni `@google/genai`: lo verificó el tester con `next build` en contenedor (DoD 9 de TASK-020).
+  - `apps/web/src/server/**` y `apps/web/src/app/api/providers/**` no contienen `process.env` ni `SecretResolver`; lo comprueba `apps/web/src/server/static.test.ts`.
+  - La restricción de red de `web` y `worker` **todavía no existe**: es TASK-050 (ADR-014, Proposed; TD-018).
+- Acceso a la BD por petición: `withDatabase` (`apps/web/src/server/db.ts`), con un pool de una conexión y un plazo de 2 s. Es el único sitio que TASK-014 cambiará por el pool compartido (TD-038).
 - Protección de la API sin autenticación (`Host` permitido, `Origin` y `Content-Type` en peticiones no-GET, cabeceras `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors`): requisito de security en TASK-007, se implementa en TASK-014. M0 solo quita `x-powered-by` (`poweredByHeader: false`).
 - El handler SSE usa `ReadableStream`; envía `: ping` cada 15 s; cierra cuando el run es terminal.
 - Sin estado global en el proceso web: todo se lee de PostgreSQL.
@@ -288,7 +315,14 @@ Compatibilidad: peers verificados con `npm view` y release coordinado langgraphj
 
 - ESM en todo el monorepo. `type: module`.
 - Nombres de archivos `kebab-case.ts`; tipos y esquemas `PascalCase`; esquemas Zod sufijo `Schema` (`RunEventSchema`) y tipo inferido sin sufijo (`RunEvent`).
-- Errores: siempre subclases de `AgentLabError` con `code` estable (`BUDGET_EXCEEDED`, `PROVIDER_RATE_LIMIT`, `API_KEY_ENV_INVALID`, …; lista cerrada en `core/errors.ts`, OD-016 ampliada por OD-027). Nunca `throw new Error("…")` fuera de tests.
+- Errores: siempre subclases de `AgentLabError` con `code` estable (`BUDGET_EXCEEDED`, `PROVIDER_RATE_LIMIT`, `API_KEY_ENV_INVALID`, `PROVIDER_CONFIG_INVALID`, …; lista cerrada en `core/errors.ts`, OD-016 ampliada por OD-027 y por TASK-020). Nunca `throw new Error("…")` fuera de tests.
+- Configuración de proveedor inválida (TASK-020, TD-143, TD-171): siempre `ProviderConfigInvalidError` (`PROVIDER_CONFIG_INVALID`, `retryable: false`), nunca `ProviderResponseError`.
+  - La lanzan `assertHttpUrl`, el constructor de `ProviderRegistry`, `resolvePolicy`, la rama `default` (`never`) de `createProvider`, `providerConfigFromRecord` y la construcción del cliente de OpenAI. En este último caso no se conserva el error original, que puede citar la clave.
+  - El mensaje es de plantilla fija: nunca lleva la URL, el tipo, el nombre de la variable ni la clave. Como mucho, el `id` del proveedor.
+- Adaptadores de `providers` (TASK-020, TD-141, TD-142):
+  - No siguen redirecciones: `fetchOptions: { redirect: "error" }` en el cliente de OpenAI y `httpOptions.fetch: noRedirectFetch` en Gemini (`packages/providers/src/no-redirect-fetch.ts`).
+  - Con clave, `Authorization: Bearer …` va explícito en `defaultHeaders`, que prevalece sobre `OPENAI_CUSTOM_HEADERS`. Sin clave, `Authorization: null`.
+  - `assertHttpUrl` rechaza las URL con credenciales y `http:` cuando hay clave. `httpUrl()` de `core/env.ts` también rechaza credenciales embebidas.
 - Nada de `console.log` en paquetes; se usa el logger de `observability` (M3) o `pino` inyectado (M0–M2).
 - Tests junto al código (`*.test.ts`) para unitarios; `src/**/*.integration.test.ts` del paquete o `tests/integration` para los que necesitan PostgreSQL, en serie (`fileParallelism: false`; testing-conventions, regla 11); `tests/e2e` (M3+) con Playwright.
 - Variables de entorno: declaradas y validadas con Zod en `core/env.ts`; una variable no declarada no existe.
